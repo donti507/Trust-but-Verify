@@ -1,3 +1,8 @@
 pytest
 pyyaml
 pydantic>=2
+reportlab
+beautifulsoup4
+pdfplumber
+pymupdf
+pytesseract

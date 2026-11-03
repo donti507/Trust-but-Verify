@@ -1,0 +1,4 @@
+Swap Confirmation
+
+Notional   Amount	USD 100,000,000
+Fixed Rate: 1.80000 percent
