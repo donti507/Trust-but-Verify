@@ -1,0 +1,16 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<h1>Confirmation under the Master Agreement</h1>
+<p>This confirmation records the terms of the transaction entered into between the fictional
+parties named below. It forms part of, and is subject to, the Master Agreement assumed solely
+for this research example. Defined terms have the meanings assigned in that agreement unless
+expressly stated otherwise in this confirmation.</p>
+<p>For each Calculation Period, the calculation agent shall determine the payment in accordance
+with the applicable rate, Calculation Amount and Day Count Fraction. Each Calculation Period
+begins on its first scheduled date and ends immediately before the next scheduled date.
+Payment dates are subject to the Business Day Convention specified below.</p>
+<p>These provisions illustrate contractual language only. No actual agreement, counterparty,
+obligation or payment is created. The economic terms for each Calculation Period follow.</p>
+{% for section in sections %}<h2>{{ section.title }}</h2>
+{% for row in section.rows %}<p class="term">The {{ row.label }} shall be {{ value(row) }}.</p>{% endfor %}
+{% endfor %}{% endblock %}

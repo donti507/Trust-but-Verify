@@ -1,0 +1,7 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<h1>Interest Rate Swap Confirmation</h1>
+{% for section in sections %}<h2>{{ section.title }}</h2>
+{% for row in section.rows %}<p class="term"><strong>{{ row.label }}:</strong> {{ value(row) }}</p>{% endfor %}
+{% endfor %}
+{% endblock %}
