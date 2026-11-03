@@ -6,3 +6,4 @@ beautifulsoup4
 pdfplumber
 pymupdf
 pytesseract
+QuantLib

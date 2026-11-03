@@ -51,6 +51,13 @@ class InterestRateSwap(BaseModel):
     trade_date: ExtractedField[date] = Field(default_factory=ExtractedField)
     effective_date: ExtractedField[date] = Field(default_factory=ExtractedField)
     termination_date: ExtractedField[date] = Field(default_factory=ExtractedField)
-    fixed_leg: FixedLeg
+    fixed_leg: FixedLeg | None = None
     floating_leg: FloatingLeg
+    floating_leg_2: FloatingLeg | None = None
     notice_address: ExtractedField[str] = Field(default_factory=ExtractedField)
+
+    @model_validator(mode="after")
+    def exactly_two_legs(self):
+        if (self.fixed_leg is None) == (self.floating_leg_2 is None):
+            raise ValueError("provide either a fixed leg or a second floating leg")
+        return self
