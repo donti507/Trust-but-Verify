@@ -40,3 +40,42 @@ Spans `[start,end)` use Unicode character positions into saved text; slicing
 `text[start:end]` returns the extracted phrase. To recover its source range, use
 `offset_map[start][0]` and `offset_map[end-1][1]` for a nonempty span. These are
 positions in extracted text, not PDF byte offsets, bounding boxes, or HTML markup.
+
+## Synthetic trades (Step 5A)
+
+`sample_trade(random.Random(seed))` returns an `InterestRateSwap`. Fixed/float
+records use `fixed_leg` and `floating_leg`; float/float records use
+`floating_leg` and `floating_leg_2`, with `fixed_leg` null. Exactly one of
+`fixed_leg` and `floating_leg_2` must be present. Every extracted field is
+explicit with a non-null value and a null span before rendering.
+
+Sampling uses the market assumptions in `synth/markets.py`, QuantLib settlement
+calendars, two business days to effectiveness, and convention-adjusted yearly
+tenors. The USD LIBOR calendar requires both New York and London to be open.
+Era rate ranges are illustrative synthetic assumptions, not historical curves.
+The RNG is supplied by the caller; no global seed or evaluation date is changed.
+
+## Gold records (Step 5)
+
+Write one JSON object per document per line in `data/<collection>/gold.jsonl`.
+The Pydantic definition is `trustswap.common.records.GoldRecord`.
+
+```json
+{"doc_id":"syn_000001","collection":"synthetic","trade":{"...":"InterestRateSwap.model_dump(mode=\"json\")"},"generator":{"seed":20261026,"sampler_version":"0.1","template_family":null}}
+```
+
+`trade` is the complete Step 1 schema serialized with `model_dump(mode="json")`;
+all term fields contain `value`, `span`, and `status`. Status is `explicit`,
+`by_reference`, `ambiguous`, or `absent`. An ambiguous field's correct action is
+**ESCALATE**. Spans are half-open character offsets into saved document text, or
+null. Step 5A leaves all spans null; part B fills them after rendering.
+
+`generator` exists only for synthetic/adversarial records. Real records instead
+contain `annotators` (for example `["A1", "A2"]`) and `adjudicated` (a boolean).
+Real gold comes exclusively from human annotators, never an LLM or verifier.
+
+`write_gold_record(trade, doc_id=..., seed=..., output_dir="data")` appends a
+synthetic record, preserving Decimal values as JSON strings and dates as ISO
+strings. It also accepts `collection="adversarial"` and optional template family
+metadata, but rejects real labels. The seed describes the caller's RNG stream;
+the sampler version is `0.1`. No raw files are modified.
