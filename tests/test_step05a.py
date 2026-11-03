@@ -59,7 +59,12 @@ def test_markets_and_values(trades):
             assert Decimal(5_000_000) <= leg.notional_amount.value <= Decimal(1_000_000_000)
             assert leg.notional_amount.value % Decimal(1_000_000) == 0
             if hasattr(leg, "floating_rate_option"):
-                assert leg.floating_rate_option.value == market.floating_option
+                if leg is trade.floating_leg:
+                    assert leg.floating_rate_option.value == market.floating_option
+                else:
+                    assert leg.floating_rate_option.value in {market.floating_option, "USD-SOFR"}
+                    if leg.floating_rate_option.value != market.floating_option:
+                        assert currency == "USD" and date(2018, 1, 1) <= trade.trade_date.value < date(2022, 1, 1)
                 assert leg.day_count_fraction.value == market.floating_day_count
                 assert Decimal("-0.005") <= leg.spread.value <= Decimal("0.02")
             else:
@@ -78,13 +83,14 @@ def test_dates_against_quantlib(trades):
 
     for trade in trades:
         assert date(2005, 1, 1) <= trade.trade_date.value <= date(2026, 12, 31)
-        assert trade.trade_date.value < trade.effective_date.value < trade.termination_date.value
+        assert trade.trade_date.value <= trade.effective_date.value < trade.termination_date.value
         calendar = calendar_for(trade.floating_leg.business_centers.value)
         effective = qdate(trade.effective_date.value)
         termination = qdate(trade.termination_date.value)
         assert calendar.isBusinessDay(effective)
         assert calendar.isBusinessDay(termination)
-        assert effective == calendar.advance(qdate(trade.trade_date.value), 2, ql.Days)
+        lag = 0 if trade.floating_leg.notional_currency.value == "GBP" else 2
+        assert effective == calendar.advance(qdate(trade.trade_date.value), lag, ql.Days)
         convention = {"MODFOLLOWING": ql.ModifiedFollowing, "FOLLOWING": ql.Following}[
             trade.floating_leg.business_day_convention.value]
         assert any(termination == calendar.advance(effective, ql.Period(years, ql.Years), convention)
@@ -160,3 +166,83 @@ def test_gold_refuses_raw_outputs(trades, tmp_path):
     with pytest.raises(ValueError, match="data/raw"):
         write_gold_record(trades[0], doc_id="syn_1", seed=507, output_dir=tmp_path / "data" / "raw")
     assert not (tmp_path / "data").exists()
+
+
+def test_trade_dates_are_business_days(trades):
+    import QuantLib as ql
+
+    for trade in trades:
+        value = trade.trade_date.value
+        assert value.weekday() < 5
+        calendar = calendar_for(trade.floating_leg.business_centers.value)
+        assert calendar.isBusinessDay(ql.Date(value.day, value.month, value.year))
+
+
+def test_basis_share_and_distinct_legs(trades):
+    basis = [trade for trade in trades if trade.floating_leg_2 is not None]
+    assert 0.10 <= len(basis) / len(trades) <= 0.20
+    for trade in basis:
+        first, second = trade.floating_leg, trade.floating_leg_2
+        assert (first.floating_rate_option.value, first.reset_frequency.value) != (
+            second.floating_rate_option.value, second.reset_frequency.value)
+        if first.floating_rate_option.value == second.floating_rate_option.value:
+            assert "IBOR" in first.floating_rate_option.value
+        else:
+            assert trade.trade_date.value.year in {2018, 2019, 2020, 2021}
+            assert {first.floating_rate_option.value, second.floating_rate_option.value} == {
+                "USD-SOFR", "USD-LIBOR-BBA"}
+
+
+@pytest.mark.parametrize("currency,candidate,expected", [
+    ("USD", date(2024, 7, 6), date(2024, 7, 8)),
+    ("USD", date(2024, 7, 4), date(2024, 7, 5)),
+    ("GBP", date(2021, 12, 31), date(2021, 12, 31)),
+    ("GBP", date(2022, 1, 1), date(2022, 1, 4)),
+    ("USD", date(2021, 12, 31), date(2022, 1, 3)),
+])
+def test_roll_forward_weekends_holidays_and_cutovers(currency, candidate, expected):
+    from trustswap.synth.markets import roll_trade_date
+
+    assert roll_trade_date(currency, candidate) == expected
+
+
+def test_gbp_cutover_and_settlement(trades):
+    before = market_for("GBP", date(2021, 12, 31))
+    after = market_for("GBP", date(2022, 1, 1))
+    assert before.floating_option == "GBP-LIBOR-BBA"
+    assert after.floating_option == "GBP-SONIA"
+    assert before.floating_day_count == after.floating_day_count == "ACT/365.FIXED"
+    assert before.centers == after.centers == ("GBLO",)
+    gbp = [trade for trade in trades if trade.floating_leg.notional_currency.value == "GBP"]
+    assert gbp
+    assert all(trade.effective_date.value == trade.trade_date.value for trade in gbp)
+
+
+def test_typical_fixed_conventions_and_variation(trades):
+    buckets = {}
+    for trade in trades:
+        if trade.fixed_leg is None:
+            continue
+        currency = trade.fixed_leg.notional_currency.value
+        libor = trade.floating_leg.floating_rate_option.value == "USD-LIBOR-BBA"
+        expected = {
+            "USD": {("6M", "30/360")} if libor else {("1Y", "ACT/360")},
+            "EUR": {("1Y", "30/360")},
+            "GBP": {("6M", "ACT/365.FIXED"), ("1Y", "ACT/365.FIXED")},
+        }[currency]
+        leg = trade.fixed_leg
+        typical = (leg.payment_frequency.value, leg.day_count_fraction.value) in expected
+        buckets.setdefault((currency, libor), []).append(typical)
+    assert len(buckets) == 4
+    for results in buckets.values():
+        assert 0.65 <= sum(results) / len(results) <= 0.95
+
+
+def test_sampled_indices_are_recognised(trades):
+    from trustswap.common.normalise import normalise_floating_rate_option
+
+    for trade in trades:
+        for leg in (trade.floating_leg, trade.floating_leg_2):
+            if leg is not None:
+                code = leg.floating_rate_option.value
+                assert normalise_floating_rate_option(code) == code.upper()
