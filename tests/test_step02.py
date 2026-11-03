@@ -196,3 +196,63 @@ def test_raw_output_via_symlink_is_refused(tmp_path):
     with pytest.raises(ValueError, match="data/raw"):
         ingest_document(FIXTURES / "confirmation.txt", collection="real", output_dir=alias)
     assert not list(raw.iterdir())
+
+
+def test_cp1252_punctuation(tmp_path):
+    source = tmp_path / "cp1252.txt"
+    original = b'Notional Amount \x96 \x93USD 100,000,000\x94'
+    source.write_bytes(original)
+    text, meta = ingest_document(source, collection="synthetic", output_dir=tmp_path / "output")
+    assert text == 'Notional Amount – “USD 100,000,000”'
+    assert meta["encoding"] == "cp1252"
+    assert_spans(text, meta)
+    assert source.read_bytes() == original
+    assert meta["sha256"] == hashlib.sha256(original).hexdigest()
+    assert Path(meta["text_path"]).read_text(encoding="utf-8") == text
+
+
+@pytest.mark.parametrize("data,expected,encoding", [
+    ("“UTF-8” – café".encode("utf-8"), "“UTF-8” – café", "utf-8"),
+    (b"\xef\xbb\xbfConfirmation", "Confirmation", "utf-8"),
+    (b"Latin\x81text", "Latin\x81text", "latin-1"),
+])
+def test_text_encoding_order(tmp_path, data, expected, encoding):
+    path = tmp_path / "confirmation.txt"
+    path.write_bytes(data)
+    text, meta = to_text(path)
+    assert text == expected
+    assert meta["encoding"] == encoding
+
+
+@pytest.mark.parametrize("html", [False, True])
+def test_edgar_text_payload(tmp_path, html):
+    payload = ('<html><body><table><tr><td>Notional Amount</td>'
+               '<td>USD 100,000,000</td></tr></table>'
+               '<p>“Fixed” – Rate</p></body></html>') if html else (
+                   'Notional Amount: USD 100,000,000\n“Fixed” – Rate')
+    wrapped = ('SEC HEADER OMITTED\n<DOCUMENT>\n<TYPE>EX-10\n'
+               '<FILENAME>swap.htm\n<TEXT>\n' + payload + '\n</TEXT>\n</DOCUMENT>\nTRAILER OMITTED')
+    source = tmp_path / "filing.txt"
+    source.write_bytes(wrapped.encode("cp1252"))
+    text, meta = to_text(source)
+    assert meta["encoding"] == "cp1252"
+    assert '“Fixed” – Rate' in text
+    assert_spans(text, meta)
+    for excluded in ("SEC HEADER", "TRAILER", "EX-10", "swap.htm", "<TEXT>", "<td>"):
+        assert excluded not in text
+    if html:
+        assert "Notional Amount | USD 100,000,000" in text
+
+
+def test_edgar_multiple_sections_and_case(tmp_path):
+    path = tmp_path / "filing.txt"
+    path.write_text('<document><text>First phrase</text></document>\n'
+                    '<DOCUMENT><TYPE>EX-10\n<TEXT><p>Second phrase</p></TEXT></DOCUMENT>')
+    text, _ = to_text(path)
+    assert text == "First phrase\nSecond phrase"
+
+
+def test_unwrapped_text_is_not_treated_as_sgml(tmp_path):
+    path = tmp_path / "plain.txt"
+    path.write_text("Ordinary <TEXT>literal</TEXT> content")
+    assert to_text(path)[0] == "Ordinary <TEXT>literal</TEXT> content"

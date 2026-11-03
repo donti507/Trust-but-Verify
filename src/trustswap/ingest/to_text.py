@@ -31,7 +31,7 @@ def normalise_whitespace(source: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(output), offsets
 
 
-def _html_text(data: bytes) -> str:
+def _html_text(data: bytes | str) -> str:
     from bs4 import BeautifulSoup, NavigableString
 
     soup = BeautifulSoup(data, "html.parser")
@@ -49,6 +49,33 @@ def _html_text(data: bytes) -> str:
         block.insert_before(NavigableString("\n"))
         block.insert_after(NavigableString("\n"))
     return soup.get_text()
+
+
+def _decode_text(data: bytes) -> tuple[str, str]:
+    """Try strict decoders in order; Latin-1 handles every remaining byte."""
+    for encoding in ("utf-8", "cp1252", "latin-1"):
+        try:
+            text = data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        # Preserve the previous handling of UTF-8 byte-order marks.
+        if encoding == "utf-8":
+            text = text.removeprefix("\ufeff")
+        return text, encoding
+    raise AssertionError("Latin-1 must decode every byte")
+
+
+def _edgar_text(text: str) -> str:
+    """Keep each SGML TEXT payload in order, excluding filing headers."""
+    if not re.search(r"<DOCUMENT\s*>", text, re.I) or not re.search(r"<TEXT\s*>", text, re.I):
+        return text
+    payloads = re.findall(r"<TEXT\s*>(.*?)</TEXT\s*>", text, re.I | re.S)
+    if not payloads:
+        raise ValueError("EDGAR filing has no complete TEXT section")
+    return "\n".join(
+        _html_text(payload) if re.search(r"</?[A-Za-z][^>]*>", payload) else payload
+        for payload in payloads
+    )
 
 
 def _pdf_text(data: bytes) -> tuple[str, bool]:
@@ -95,16 +122,18 @@ def to_text(path: str | Path) -> tuple[str, dict]:
     data = path.read_bytes()
     suffix = path.suffix.lower()
     ocr = False
+    encoding = None
     if suffix in {".html", ".htm"}:
         source = _html_text(data)
     elif suffix == ".txt":
-        source = data.decode("utf-8-sig")
+        source, encoding = _decode_text(data)
+        source = _edgar_text(source)
     elif suffix == ".pdf":
         source, ocr = _pdf_text(data)
     else:
         raise ValueError(f"Unsupported document extension: {suffix}")
     text, offsets = normalise_whitespace(source)
-    return text, {"sha256": sha256_bytes(data), "ocr": ocr,
+    return text, {"sha256": sha256_bytes(data), "ocr": ocr, "encoding": encoding,
                   "offset_map": offsets, "source_text": source}
 
 
