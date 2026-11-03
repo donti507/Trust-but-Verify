@@ -14,13 +14,14 @@ from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import csv
 import hashlib
+from html import unescape
 import json
 import os
 from pathlib import Path
 import re
 import tempfile
 import time
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -51,6 +52,12 @@ def _http_get(url: str, headers: dict[str, str]) -> Response:
         return Response(error.code, dict(error.headers), error.read())
 
 
+class SECRequestError(RuntimeError):
+    def __init__(self, url, status, reason):
+        self.url, self.status, self.reason = url, status, reason
+        super().__init__(f"SEC returned HTTP {status}: {reason}; request failed: {url}")
+
+
 class SECClient:
     """One shared, paced request stream for searches, retries and downloads."""
     def __init__(self, user_agent: str | None = None, *, transport=None,
@@ -74,11 +81,17 @@ class SECClient:
                 if remaining > 0:
                     self.sleep(remaining)
             self.last_request = self.clock()
-            response = self.transport(url, dict(self.headers))
+            try:
+                response = self.transport(url, dict(self.headers))
+            except (URLError, OSError) as error:
+                if attempt == self.max_retries:
+                    raise SECRequestError(url, None, str(error)) from error
+                self.sleep(min(60, 2 ** attempt))
+                continue
             if response.status == 200:
                 return response.body
             if response.status not in {429, 503} or attempt == self.max_retries:
-                raise RuntimeError(f"SEC returned HTTP {response.status}; request failed: {url}")
+                raise SECRequestError(url, response.status, "request failed after retries" if attempt else "request rejected")
             retry_after = next((value for key, value in response.headers.items() if key.lower() == "retry-after"), "")
             delay = min(60, 2 ** attempt)
             try:
@@ -220,14 +233,88 @@ def print_summary(candidates: list[Candidate]):
             print(f"  {name}: {count}")
 
 
+@dataclass
+class DownloadReport:
+    successes: dict[str, dict] = field(default_factory=dict)
+    failures: dict[str, dict] = field(default_factory=dict)
+
+    def merge(self, other):
+        self.successes.update(other.successes)
+        self.failures.update(other.failures)
+
+    def print_summary(self):
+        print(f"Downloaded: {len(self.successes)}")
+        print(f"Recovered via fallback: {sum(entry.get('source') == 'full_submission' for entry in self.successes.values())}")
+        print(f"Failed: {len(self.failures)}")
+
+
+def _decode_submission(body):
+    for encoding in ("utf-8", "cp1252", "latin-1"):
+        try:
+            return body.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    raise AssertionError("Latin-1 decodes every byte")
+
+
+def extract_submission_document(body: bytes, exhibit: str, phrases) -> tuple[bytes, str, str]:
+    """Select exact original SGML block bytes, preferring filename to phrase."""
+    blocks = []
+    for match in re.finditer(rb"<DOCUMENT\s*>.*?</DOCUMENT\s*>", body, re.I | re.S):
+        block = match.group()
+        filename = re.search(rb"<FILENAME>[^\S\r\n]*([^\r\n<]+)", block, re.I)
+        name = _decode_submission(filename.group(1)).strip() if filename else ""
+        blocks.append((block, name))
+    named = [(block, name) for block, name in blocks if name.casefold() == exhibit.casefold()]
+    if len(named) > 1:
+        raise ValueError("multiple full-submission blocks match the exhibit filename")
+    if named:
+        return *named[0], "filename"
+    for block, name in blocks:
+        visible = " ".join(unescape(re.sub(r"<[^>]*>", " ", _decode_submission(block))).split()).casefold()
+        if any(" ".join(phrase.split()).casefold() in visible for phrase in phrases if phrase.strip()):
+            return block, name, "phrase"
+    raise ValueError("full submission contains no matching filename or matched phrase")
+
+
+def full_submission_url(candidate):
+    return (f"https://www.sec.gov/Archives/edgar/data/{int(candidate.cik)}/"
+            f"{candidate.accession_number.replace('-', '')}/{candidate.accession_number}.txt")
+
+
+def _raw_path(candidate, root, source="exhibit"):
+    name = f"{candidate.cik}_{candidate.accession_number}_{candidate.exhibit_file_name}"
+    return root / (name + ".full_submission.txt" if source == "full_submission" else name)
+
+
+def _log_failure(path, url, error, status=None):
+    row = {"url": url, "status": status if status is not None else getattr(error, "status", getattr(error, "code", "")),
+           "reason": str(error)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=("url", "status", "reason"))
+        if header:
+            writer.writeheader()
+        writer.writerow(row)
+    return row
+
+
 def download_candidates(client: SECClient, candidates: list[Candidate], count: int,
-                        raw_dir: str | Path = "data/raw/edgar"):
+                        raw_dir: str | Path = "data/raw/edgar", *, failure_path=None) -> DownloadReport:
+    """Continue after remote failures; preserve local integrity/overwrite errors.
+
+    Successful fallback blocks are saved as SGML .txt with their own byte hash.
+    The original exhibit URL remains the manifest's stable candidate identity.
+    """
     if count < 0:
         raise ValueError("download count must be nonnegative")
+    report = DownloadReport()
     if not count:
-        return
+        return report
     root = Path(raw_dir)
     root.mkdir(parents=True, exist_ok=True)
+    failure_path = Path(failure_path) if failure_path is not None else root.parent.parent / "real/download_failures.csv"
     manifest = root / "manifest.jsonl"
     existing = {}
     if manifest.exists():
@@ -236,23 +323,52 @@ def download_candidates(client: SECClient, candidates: list[Candidate], count: i
             if entry["document_url"] in existing:
                 raise ValueError("duplicate URL in download manifest")
             existing[entry["document_url"]] = entry
+    fetch_errors = (RuntimeError, HTTPError, URLError, OSError)
     for candidate in candidates[:count]:
-        target = root / f"{candidate.cik}_{candidate.accession_number}_{candidate.exhibit_file_name}"
         if candidate.document_url in existing:
             entry = existing[candidate.document_url]
-            if str(target) != entry["path"] or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != entry["sha256"]:
+            source = entry.get("source", "exhibit")
+            target = _raw_path(candidate, root, source)
+            if source not in {"exhibit", "full_submission"} or str(target) != entry["path"] or not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != entry["sha256"]:
                 raise ValueError("existing download does not match its manifest; refusing overwrite")
+            report.successes[candidate.document_url] = entry
             continue
+        target = _raw_path(candidate, root)
         if target.exists():
             raise FileExistsError(f"unmanifested raw file will not be overwritten: {target}")
-        body = client.get(candidate.document_url)
+        details = {"source": "exhibit", "source_url": candidate.document_url}
+        try:
+            body = client.get(candidate.document_url)
+        except fetch_errors as error:
+            failure = _log_failure(failure_path, candidate.document_url, error)
+            if getattr(error, "status", getattr(error, "code", None)) != 404:
+                report.failures[candidate.document_url] = failure
+                continue
+            url = full_submission_url(candidate)
+            try:
+                submission = client.get(url)
+            except fetch_errors as fallback_error:
+                report.failures[candidate.document_url] = _log_failure(failure_path, url, fallback_error)
+                continue
+            try:
+                body, selected_filename, selection = extract_submission_document(
+                    submission, candidate.exhibit_file_name, candidate.matched_phrases)
+            except ValueError as selection_error:
+                report.failures[candidate.document_url] = _log_failure(failure_path, url, selection_error, status=200)
+                continue
+            target = _raw_path(candidate, root, "full_submission")
+            details = {"source": "full_submission", "source_url": url,
+                       "submission_sha256": hashlib.sha256(submission).hexdigest(),
+                       "selected_filename": selected_filename, "selection": selection}
         with target.open("xb") as handle:
             handle.write(body)
         entry = {"document_url": candidate.document_url, "accession_number": candidate.accession_number,
-                 "cik": candidate.cik, "path": str(target), "sha256": hashlib.sha256(body).hexdigest()}
+                 "cik": candidate.cik, "path": str(target), "sha256": hashlib.sha256(body).hexdigest(), **details}
         with manifest.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
         existing[candidate.document_url] = entry
+        report.successes[candidate.document_url] = entry
+    return report
 
 
 def main(argv=None):
@@ -270,7 +386,9 @@ def main(argv=None):
     candidates = discover(client)
     write_candidates(candidates, arguments.output)
     print_summary(candidates)
-    download_candidates(client, candidates, arguments.download, arguments.raw_dir)
+    report = download_candidates(client, candidates, arguments.download, arguments.raw_dir,
+                                 failure_path=arguments.output.parent / "download_failures.csv")
+    report.print_summary()
     return 0
 
 

@@ -223,3 +223,78 @@ def test_assigned_document_is_not_rescreened(tmp_path):
     record_path.write_text(json.dumps(record) + "\n")
     with pytest.raises(ValueError, match="refusing split access"):
         screen.screen_candidates(client, candidates, data_root=tmp_path)
+
+
+def test_same_era_topups_produce_300_successes(tmp_path):
+    pool = [candidate(era * 150 + index, year) for era, year in enumerate(YEARS) for index in range(150)]
+    selected = screen.stratified_sample(pool, seed=507, as_of=AS_OF)
+    failed_urls = {item.document_url for item in selected[:20]}
+    calls, clock = [], Clock()
+    def transport(url, headers):
+        calls.append(url)
+        return edgar_scope.Response(503, {}, b"unavailable") if url in failed_urls else edgar_scope.Response(200, {}, b"ok")
+    client = edgar_scope.SECClient("Tests test@example.invalid", transport=transport,
+                                   clock=clock.clock, sleep=clock.sleep, max_retries=0)
+    successful, report = screen.download_sample(client, selected, pool, seed=507, data_root=tmp_path, as_of=AS_OF)
+    assert len(successful) == len({item.document_url for item in successful}) == 300
+    assert Counter(screen.era_for(item.filing_date, as_of=AS_OF) for item in successful) == screen.ERA_QUOTAS
+    assert len(report.successes) == 300 and len(report.failures) == 20
+    assert failed_urls.isdisjoint(item.document_url for item in successful)
+    assert len(calls) == 320
+    manifest = tmp_path / "raw/edgar/manifest.jsonl"
+    before = manifest.read_bytes()
+    assert len(before.splitlines()) == 300
+    again, _ = screen.download_sample(client, selected, list(reversed(pool)), seed=507, data_root=tmp_path, as_of=AS_OF)
+    assert again == successful and manifest.read_bytes() == before
+    assert len(calls) == 340  # Only previously unsuccessful URLs need new requests.
+
+
+def test_full_submission_pdf_candidate_is_ingested_as_selected_sgml(tmp_path):
+    item = candidate(1, 2024, "missing.pdf")
+    item.matched_phrases.add(edgar_scope.PHRASES[0])
+    full = (Path(__file__).parent / "fixtures/edgar/full_submission.txt").read_bytes()
+    clock = Clock()
+    def transport(url, headers):
+        return edgar_scope.Response(404, {}, b"missing") if url == item.document_url else edgar_scope.Response(200, {}, full)
+    client = edgar_scope.SECClient("Tests test@example.invalid", transport=transport,
+                                   clock=clock.clock, sleep=clock.sleep)
+    rows = screen.screen_candidates(client, [item], data_root=tmp_path, as_of=AS_OF)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["download_source"] == "full_submission"
+    assert row["resolved_source_url"] == edgar_scope.full_submission_url(item)
+    assert row["selected_filename"] == "swap-ex101.htm"
+    assert row["raw_path"].endswith(".full_submission.txt")
+    assert row["page_count_basis"] == "estimated_text_layout"
+    assert row["label"] == "likely_confirmation"
+    assert "Primary filing" not in Path(row["text_path"]).read_text()
+    record = json.loads((tmp_path / "real/docs.jsonl").read_text())
+    assert record["source_url"] == row["resolved_source_url"]
+    assert record["sha256"] == hashlib.sha256(Path(row["raw_path"]).read_bytes()).hexdigest()
+
+
+def test_exhausted_pool_retains_screen_and_prints_download_counts(tmp_path, monkeypatch, capsys):
+    items = small_candidates()
+    edgar_scope.write_candidates(items, tmp_path / "real/candidates.csv")
+    clock = Clock()
+    def transport(url, headers):
+        return edgar_scope.Response(403, {}, b"denied") if url == items[0].document_url else edgar_scope.Response(
+            200, {}, (FIXTURES / url.rsplit("/", 1)[-1]).read_bytes())
+    mocked = edgar_scope.SECClient("Tests test@example.invalid", transport=transport,
+                                   clock=clock.clock, sleep=clock.sleep)
+    monkeypatch.setattr(edgar_scope, "SECClient", lambda: mocked)
+    original = screen.stratified_sample
+    monkeypatch.setattr(screen, "stratified_sample", lambda items, **options: original(
+        items, quotas={era: 3 for era in screen.ERA_QUOTAS}, **options))
+    with pytest.raises(SystemExit) as error:
+        screen.main(["--data-root", str(tmp_path)])
+    assert error.value.code == 2
+    output = capsys.readouterr()
+    assert "same-era replacement pool exhausted" in output.err
+    assert "Downloaded: 11" in output.out and "Recovered via fallback: 0" in output.out and "Failed: 1" in output.out
+    with (tmp_path / "real/screen.csv").open() as handle:
+        assert len(list(csv.DictReader(handle))) == 11
+    with (tmp_path / "real/download_failures.csv").open() as handle:
+        failures = list(csv.DictReader(handle))
+    assert len(failures) == 1 and failures[0]["status"] == "403"
+    assert not (tmp_path / "real/manual_check.csv").exists()

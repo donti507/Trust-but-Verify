@@ -1,0 +1,24 @@
+<SEC-DOCUMENT>Fictional filing fixture
+<DOCUMENT>
+<TYPE>8-K
+<SEQUENCE>1
+<FILENAME>primary.htm
+<TEXT>
+<html><body>Primary filing discusses a Floating Rate Option, without confirmation terms.</body></html>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>EX-10.1
+<SEQUENCE>2
+<FILENAME>swap-ex101.htm
+<TEXT>
+<html><body><table>
+<tr><td>Notional Amount</td><td>USD 100,000,000</td></tr>
+<tr><td>Effective Date</td><td>2024-01-04</td></tr>
+<tr><td>Termination Date</td><td>2029-01-04</td></tr>
+<tr><td>Fixed Rate</td><td>4.25%</td></tr>
+<tr><td>Floating Rate Day Count Fraction</td><td>ACT/360</td></tr>
+</table></body></html>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
