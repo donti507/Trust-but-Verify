@@ -50,10 +50,15 @@ records use `fixed_leg` and `floating_leg`; float/float records use
 explicit with a non-null value and a null span before rendering.
 
 Sampling uses the market assumptions in `synth/markets.py`, QuantLib settlement
-calendars, two business days to effectiveness, and convention-adjusted yearly
-tenors. The USD LIBOR calendar requires both New York and London to be open.
+calendars, business-day trade dates, T+0 effectiveness for GBP and T+2
+elsewhere, and convention-adjusted yearly tenors. The USD LIBOR calendar requires both New York and London to be open.
 Era rate ranges are illustrative synthetic assumptions, not historical curves.
 The RNG is supplied by the caller; no global seed or evaluation date is changed.
+Fixed/float is sampled with probability 85%, basis swaps with 15%. Basis sampling
+is conditional on IBOR-eligible currency/era combinations: distinct reset tenors
+of the same IBOR, or USD LIBOR versus SOFR in 2018–2021. GBP uses LIBOR before
+2022 and SONIA from 2022. Fixed legs use typical market frequency/day-count pairs
+80% of the time, with weighted alternative choices for the remaining 20%.
 
 ## Gold records (Step 5)
 
