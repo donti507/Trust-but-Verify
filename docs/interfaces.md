@@ -140,3 +140,72 @@ PDF creation and modification metadata are fixed at `2026-01-01T00:00:00Z`.
 The PDF identifier is SHA-256 of `trustswap-pdf:<rendering seed>`. Marker removal
 preserves that identifier. Fixed-seed tests compare HTML/PDF bytes, ingested text
 and all gold spans. Byte reproducibility assumes the same renderer and fonts.
+
+## Adversarial injector (Step 6)
+
+`trustswap.synth.defects` exposes one function per type: `contradiction`,
+`amendment`, `non_standard_calendar`, `swapped_legs`, `scale_error`,
+`unusual_day_count`, `stub_ambiguity`, `multiple_notionals`,
+`legacy_index_fallback`, `ocr_digit_corruption`, `missing_information`, and
+`prompt_injection`. Each accepts `(parent_trade, render_seed, severity=1,
+parent_id=None, control=False, designed_by="team")` (options are keyword-only).
+It returns a `DefectCase` with separate displayed `trade`, structured `gold`,
+`label`, rendering edits/notes, metadata, and an untouched copy of the parent.
+Omitted parent IDs are deterministic hashes of the structured clean trade.
+
+All cases have severity 1 or 2. Examples include an amendment of one business day
+versus one year; scale factors ×10 versus ×1000; one OCR digit substitution versus
+all zero digits; one missing field versus two; and one versus three injected
+instructions. OCR corruption here simulates letter/digit corruption in a text
+layer; it does not pretend that raster OCR ran (`ocr` reports actual ingestion).
+
+`render_case(case, output_dir="data", template_family=...)` uses the Step 5B
+renderer. It first saves the clean twin in `synthetic`, or verifies existing
+parent records, PDF hash, structured gold, rendering seed, family and artifact
+presence before reusing it. A missing or changed twin is never silently replaced.
+Children go only to `adversarial`, with document split `adv_test`. No real data or
+real labels are inspected. Rendering never calls an API or executes document text.
+
+Both the document and gold JSONL record include these top-level fields:
+
+| Field | Meaning |
+| --- | --- |
+| parent_id | Existing clean synthetic document ID |
+| defect | One of the twelve function/type names |
+| severity | 1 or 2, interpreted within the defect type |
+| affected_fields | Nonempty list of Step 1 paths, e.g. `floating_leg.notional_amount` |
+| expected_rules | Nonempty list of V1–V7 identifiers or `["silent"]` |
+| designed_by | `team` or caller-supplied `blind` designation |
+| is_control | True for an unusual-but-correct matched control |
+
+These additional fields are omitted from legacy/non-adversarial records when
+unset. `AdversarialMetadata` validates complete Step 6 provenance. Historical
+Step 2/5A adversarial records with only parent/defect metadata remain readable.
+New Step 6 records always include the complete metadata, in both JSONL files.
+
+Gold is derived by structured edits, never from a model's extraction or verifier:
+
+- Amendments explicitly supersede the former date; gold holds the amended date.
+- Contradictions, competing notionals, ambiguous stub schedules and untriggered
+  fallback clauses have ambiguous affected gold with null value/span; correct
+  action is ESCALATE.
+- Missing fields have absent gold with null value/span, and are omitted from the
+  PDF. The renderer rejects omissions paired with non-absent gold.
+- OCR and scale corruption retain the true parent amount in gold. Swapped role
+  summaries retain the authoritative role allocation, also stated in the text.
+  Corrupted spans may deliberately fail grounding against the true gold value.
+- Prompt-injection text is inert document content. Economic values/statuses in
+  gold are unchanged; spans are recomputed in the new document. No instructions
+  from the document are followed.
+- Nonstandard-calendar defects place an explicit date on an added center's
+  actual QuantLib holiday; correct controls recompute settlement using the joint
+  calendar. Rare valid day counts use ACT/ACT.ISDA or 30E/360. Stub controls state
+  an explicit short initial period and the subsequent regular reset tenor.
+
+`make_control(type, parent, seed, ...)` produces a matched control for every type.
+Controls have correct explicit gold (except inapplicable fixed resets), preserved
+clean twins, and no expected HARD result. Calendar/day-count controls may receive
+V7 SOFT; other controls predict silence. No control is relabelled as a defect
+merely because it is rare. Expected-rule mappings are editable H4 predictions in
+one code table, `EXPECTED_RULES`; see [verifier_rules.md](verifier_rules.md) for
+V1–V7 definitions. This step creates test cases, not a verifier implementation.
