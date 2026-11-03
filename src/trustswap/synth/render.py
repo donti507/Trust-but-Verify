@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 import io
+import hashlib
 from pathlib import Path
 from random import Random
 from tempfile import TemporaryDirectory
@@ -100,6 +101,8 @@ def _context(trade: InterestRateSwap, seed: int, family: str) -> list[dict]:
     titles = {"document": "Transaction Details", "fixed_leg": "Fixed Leg",
               "floating_leg": "Floating Leg 1", "floating_leg_2": "Floating Leg 2"}
     for path, field in trade_fields(trade).items():
+        if field.status == "absent":
+            continue
         if field.status != "explicit" or field.value is None:
             raise ValueError("Step 5B requires explicit, non-null structured terms")
         container, _, name = path.rpartition(".")
@@ -126,9 +129,10 @@ def _no_resources(url, *args, **kwargs):
     raise ValueError(f"External resources are forbidden in synthetic rendering: {url}")
 
 
-def _pdf_and_spans(marked_html: str) -> tuple[bytes, str, dict[str, tuple[int, int]]]:
+def _pdf_and_spans(marked_html: str, *, seed: int) -> tuple[bytes, str, dict[str, tuple[int, int]]]:
     """Read annotation rectangles and PDF text maps, then discard all markers."""
-    marked_pdf = HTML(string=marked_html, url_fetcher=_no_resources).write_pdf()
+    identifier = hashlib.sha256(f"trustswap-pdf:{seed}".encode("utf-8")).hexdigest()
+    marked_pdf = HTML(string=marked_html, url_fetcher=_no_resources).write_pdf(pdf_identifier=identifier)
     source_parts = []
     raw_ranges: dict[str, list[int]] = {}
     source_offset = 0
@@ -191,7 +195,7 @@ def render_trade(trade: InterestRateSwap, *, seed: int, doc_id: str,
         if path.exists():
             raise FileExistsError(path)
     sections = _context(trade, seed, family)
-    pdf, expected_text, spans = _pdf_and_spans(_html(sections, family, markers=True))
+    pdf, expected_text, spans = _pdf_and_spans(_html(sections, family, markers=True), seed=seed)
     expected_fields = {row["path"]: row["text"] for section in sections for row in section["rows"]}
     if spans.keys() != expected_fields.keys():
         raise ValueError("some rendered field markers are missing from the PDF")
@@ -201,7 +205,7 @@ def render_trade(trade: InterestRateSwap, *, seed: int, doc_id: str,
             raise ValueError(f"PDF layout changed the visible field value: {key}")
     annotated = trade.model_copy(deep=True)
     for key, field in trade_fields(annotated).items():
-        field.span = spans[key]
+        field.span = spans.get(key)
     annotated = InterestRateSwap.model_validate(annotated.model_dump())
     with TemporaryDirectory(prefix="trustswap-render-") as directory:
         temporary = Path(directory) / "document.pdf"

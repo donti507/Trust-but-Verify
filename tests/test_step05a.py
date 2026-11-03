@@ -33,9 +33,12 @@ def test_thousand_trades_validate(trades):
     for trade in trades:
         assert InterestRateSwap.model_validate_json(trade.model_dump_json()) == trade
         for field in fields(trade.model_dump()):
-            assert field["status"] == "explicit"
             assert field["span"] is None
-            assert field["value"] is not None
+            if field["status"] == "absent":
+                assert field["value"] is None
+            else:
+                assert field["status"] == "explicit"
+                assert field["value"] is not None
     assert any(trade.fixed_leg is not None for trade in trades)
     assert any(trade.floating_leg_2 is not None for trade in trades)
 
@@ -55,7 +58,11 @@ def test_markets_and_values(trades):
             assert leg.business_centers.value == list(market.centers)
             assert leg.business_day_convention.value in {"MODFOLLOWING", "FOLLOWING"}
             assert leg.payment_frequency.value in FREQUENCIES
-            assert leg.reset_frequency.value in FREQUENCIES
+            if hasattr(leg, "fixed_rate"):
+                assert leg.reset_frequency.status == "absent"
+                assert leg.reset_frequency.value is None
+            else:
+                assert leg.reset_frequency.value in FREQUENCIES
             assert Decimal(5_000_000) <= leg.notional_amount.value <= Decimal(1_000_000_000)
             assert leg.notional_amount.value % Decimal(1_000_000) == 0
             if hasattr(leg, "floating_rate_option"):
@@ -246,3 +253,10 @@ def test_sampled_indices_are_recognised(trades):
             if leg is not None:
                 code = leg.floating_rate_option.value
                 assert normalise_floating_rate_option(code) == code.upper()
+
+
+def test_fixed_legs_have_no_reset_frequency(trades):
+    fixed = [trade.fixed_leg for trade in trades if trade.fixed_leg is not None]
+    assert fixed
+    for leg in fixed:
+        assert leg.reset_frequency.model_dump() == {"value": None, "span": None, "status": "absent"}
