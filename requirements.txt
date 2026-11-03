@@ -1,0 +1,17 @@
+# Core pipeline (CPU). Pin exact versions with `pip freeze > requirements.lock` after first install.
+-r requirements-dev.txt
+QuantLib
+pdfplumber
+pymupdf
+pytesseract
+beautifulsoup4
+jinja2
+weasyprint
+augraphy
+scikit-learn
+lightgbm
+statsmodels
+pandas
+pyarrow
+google-cloud-storage
+google-cloud-aiplatform

@@ -1,0 +1,7 @@
+# GPU extraction and Track B (Kaggle or GCP GPU VM)
+-r requirements.txt
+vllm
+transformers
+peft
+trl
+bitsandbytes

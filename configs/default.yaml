@@ -1,0 +1,10 @@
+seed: 20261026
+paths:
+  data: data
+  cache: cache
+  results: results
+  bucket: gs://trustswap-CHANGE-ME
+models:
+  open_weights: {name: Qwen2.5-7B-Instruct-AWQ, version: PIN-ME}
+  frontier: {name: PIN-ME, version: PIN-ME}
+extraction: {K: 5, temperature_k0: 0.0, temperature_rest: 0.7, prompt_version: v1}

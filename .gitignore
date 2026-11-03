@@ -1,0 +1,19 @@
+# Never commit data, model outputs, results or secrets
+data/**
+!data/**/.gitkeep
+cache/**
+!cache/.gitkeep
+results/**
+!results/.gitkeep
+*.key
+*.pem
+.env
+service-account*.json
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+# Notebooks checkpoints
+.ipynb_checkpoints/
