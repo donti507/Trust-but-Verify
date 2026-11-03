@@ -7,3 +7,5 @@ pdfplumber
 pymupdf
 pytesseract
 QuantLib
+WeasyPrint
+Jinja2

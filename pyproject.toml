@@ -17,3 +17,4 @@ pythonpath = ["src", "."]
 
 [tool.setuptools.package-data]
 "trustswap.ref" = ["*.txt"]
+"trustswap.synth.templates" = ["*.j2"]

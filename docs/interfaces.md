@@ -84,3 +84,52 @@ synthetic record, preserving Decimal values as JSON strings and dates as ISO
 strings. It also accepts `collection="adversarial"` and optional template family
 metadata, but rejects real labels. The seed describes the caller's RNG stream;
 the sampler version is `0.1`. No raw files are modified.
+
+## Synthetic rendering (Step 5B)
+
+`render_trade(trade, seed=..., doc_id=..., template_family=..., output_dir="data")`
+returns a `RenderResult` containing HTML/PDF paths, ingested text, a
+`DocumentRecord`, and a `GoldRecord`. Omitting `template_family` chooses a family
+deterministically from the rendering seed. The input trade is never mutated.
+All supplied term fields must have explicit, non-null values.
+
+Artifacts are written to `data/synthetic/html/<doc_id>.html`,
+`data/synthetic/pdf/<doc_id>.pdf`, and `data/synthetic/text/<doc_id>.txt` with its
+`.offsets.json` sidecar. Document and gold records append to the existing JSONL
+files. Documents receive `family_id`, `split`, and original-final-PDF SHA-256;
+gold receives `generator.template_family` and a span for every term. Ingestion
+accepts optional `family_id` and `split` supplied by rendering; its defaults
+remain null for ordinary source-document ingestion.
+
+The immutable family manifest is `trustswap.synth.templates.FAMILY_SPLITS`:
+
+| Family | Split |
+| --- | --- |
+| label_value | train |
+| two_column | train |
+| dealer_caps | train |
+| legal_preamble | dev |
+| letter | syn_test |
+| term_sheet | syn_test |
+
+Variants and wording changes stay within their family's split. Future families
+must receive one manifest assignment; callers cannot override the split. This
+initial set has six families, with twelve planned later.
+
+Every PDF starts with `SYNTHETIC DOCUMENT: fictional parties, generated for research`.
+Jinja templates escape supplied text. WeasyPrint uses only packaged templates,
+inline CSS and local system fonts; its resource fetcher rejects all URLs.
+
+During layout, invisible link annotations mark field identities and rectangles.
+PDF glyph positions identify the exact occurrence of each value, including
+repeated amounts and party names. The renderer translates these positions through
+Step 2's whitespace map to saved-text spans. It removes the annotations, ingests
+the final PDF, and checks that removing markers did not change the extracted
+text. Neither the final HTML nor PDF contains marker metadata. Spans refer to
+the final PDF's ingested text, not to the HTML source or the input trade.
+
+Dates, notionals, rates, frequencies, day counts and business centers have varied
+human-readable formats. Tests compare the span text using Step 1 normalisers;
+index spelling and center-list order are compared in canonical form. The
+renderer rejects missing, overlapping or mismatched markers and refuses existing
+artifact paths and all writes under `data/raw/`.

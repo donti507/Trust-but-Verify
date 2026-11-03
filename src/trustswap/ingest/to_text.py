@@ -146,7 +146,8 @@ def _protect_raw(path: Path) -> None:
 
 def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path = "data",
                     doc_id: str | None = None, source_url: str | None = None,
-                    parent_id: str | None = None, defect: str | None = None) -> tuple[str, dict]:
+                    parent_id: str | None = None, defect: str | None = None,
+                    family_id: str | None = None, split: str | None = None) -> tuple[str, dict]:
     """Save text and offsets, then append a DocumentRecord to collection/docs.jsonl.
 
     output_dir is the data root. Input and existing text/offset files are never
@@ -172,7 +173,7 @@ def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path
             raise FileExistsError(target)
     record = DocumentRecord(doc_id=doc_id, collection=collection, sha256=meta["sha256"],
                             text_path=str(text_path), ocr=meta["ocr"], source_url=source_url,
-                            parent_id=parent_id, defect=defect)
+                            parent_id=parent_id, defect=defect, family_id=family_id, split=split)
     text_path.parent.mkdir(parents=True, exist_ok=True)
     with text_path.open("x", encoding="utf-8", newline="") as handle:
         handle.write(text)

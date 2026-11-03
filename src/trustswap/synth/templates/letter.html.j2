@@ -1,0 +1,9 @@
+{% extends "base.html.j2" %}
+{% block content %}
+<h1>Letter Agreement</h1><p>Dear Counterparty,</p>
+<p>The purpose of this letter agreement is to confirm the terms and conditions of the
+interest rate swap transaction between our fictional parties. Please review the following
+particulars and retain this generated confirmation for research only.</p>
+{% for section in sections %}<h2>{{ section.title }}</h2>
+{% for row in section.rows %}<p class="term">{{ row.label }}: {{ value(row) }}</p>{% endfor %}
+{% endfor %}<p>Yours faithfully,<br>Research Confirmation Desk</p>{% endblock %}

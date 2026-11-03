@@ -10,6 +10,18 @@ risk control.
 - Licence: to be decided after checking the participating institutions' IP policies
 
 ## Quick start
+
+On Ubuntu/Debian, install the system libraries, fonts and OCR engine before
+installing Python dependencies (CI uses the same packages):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core tesseract-ocr
+```
+
+Synthetic PDF templates use DejaVu Serif with ligatures disabled to keep extracted
+text and field spans consistent across development and CI machines.
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
