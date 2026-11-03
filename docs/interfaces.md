@@ -236,3 +236,25 @@ PDF page counts use PyMuPDF with basis `pdf`. Skipped large files use
 `not_screened` and leave page/score fields blank. Screen errors/timeouts are
 logged in `data/real/screen_failures.csv`; cached screen results and ingested
 text support resume without raw re-downloads or source re-extraction.
+
+
+## Manual review helper
+
+`scripts/review_helper.py` updates `data/real/manual_check.csv` offline. It retains
+all existing columns and adds `product_type` and `review_status` if needed:
+
+- `is_confirmation`: human-entered `y` or `n`; remains blank for a skip.
+  Existing yes/no, true/false and 1/0 spellings are recognised without rewriting
+  the original answer.
+- `product_type`: optional `irs_fixed_float`, `basis`, `cap_floor`, or `other`,
+  selected with keys 1–4. No product is inferred from text or screening labels.
+- `review_status`: `answered`, `skipped`, or blank for unreviewed rows. Skipped
+  rows resume only with `--revisit-skipped`; completed answers are preserved.
+
+Each valid answer replaces the CSV atomically; detected concurrent file edits
+abort saving rather than overwrite another reviewer. Raw documents and ingested
+text are never changed. URLs are displayed, never fetched. Relative text paths
+resolve against the CSV directory, current working directory or standard
+repository root; ambiguous paths are rejected. Missing/unreadable text is not
+labelled. Only the operator supplies answers: the helper creates no gold trade
+labels or adjudication metadata. Rows marked `real_test` are excluded.

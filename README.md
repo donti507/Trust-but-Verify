@@ -102,6 +102,28 @@ and refuses to reuse a document that already has a split.
 Use `--data-root`, `--candidates` or `--raw-dir` for alternate local paths.
 Tests use only fictional saved fixtures and mocked HTTP, not SEC downloads.
 
+## How to run: offline manual review
+
+```bash
+python scripts/review_helper.py
+# Optional: custom CSV, plain highlighting, or revisit saved skips
+python scripts/review_helper.py --csv data/real/manual_check.csv --no-color --revisit-skipped
+```
+
+The helper reads local `text_path` files only: it never downloads or opens URLs.
+It shows the URL, era, screen label, page count/basis, the first 60 lines, and all
+later lines containing the requested swap terms, with highlights and original
+line numbers. Non-TTY/`--no-color` output uses `[[phrase]]` highlighting.
+
+Enter `y` (confirmation), `n` (not), or `s` (skip), optionally with a product key
+on the **same line**, then press Enter: `y 1`, `n 4`, or `s`. Product keys are
+`1` irs_fixed_float, `2` basis, `3` cap_floor, `4` other. Every answer is saved
+atomically to the same CSV, preserving other columns and answers. EOF/Ctrl+C
+stops safely; rerunning skips completed answers and saved skips. Use
+`--revisit-skipped` to return to the latter. Missing text files stay unanswered.
+The final summary shows yes/no counts per screen label and era, plus skip and
+unanswered totals. These human triage decisions do not create trade gold labels.
+
 ## Layout
 ```
 configs/   experiment configs (YAML)
