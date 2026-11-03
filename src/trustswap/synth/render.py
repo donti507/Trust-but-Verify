@@ -20,7 +20,7 @@ import pdfplumber
 import pymupdf
 from weasyprint import HTML
 
-from trustswap.common.records import DocumentRecord, GoldRecord
+from trustswap.common.records import AdversarialMetadata, DocumentRecord, GoldRecord
 from trustswap.common.schema import ExtractedField, InterestRateSwap
 from trustswap.ingest.to_text import ingest_document, normalise_whitespace, to_text, _protect_raw
 from trustswap.synth.gold import write_gold_record
@@ -86,7 +86,7 @@ def _display(name: str, value, currency: str | None, rng: Random) -> str:
         return rng.choice((value, aliases.get(value, value)))
     if name == "day_count_fraction":
         return rng.choice((value, {"30/360": "30/360 (Bond Basis)", "ACT/360": "Actual/360",
-                                   "ACT/365.FIXED": "Actual/365 (Fixed)"}[value]))
+                                   "ACT/365.FIXED": "Actual/365 (Fixed)"}.get(value, value)))
     if name == "business_day_convention":
         return {"MODFOLLOWING": "Modified Following", "FOLLOWING": "Following"}[value]
     if name == "business_centers":
@@ -118,11 +118,11 @@ def _context(trade: InterestRateSwap, seed: int, family: str) -> list[dict]:
     return list(sections.values())
 
 
-def _html(sections: list[dict], family: str, *, markers: bool) -> str:
+def _html(sections: list[dict], family: str, *, markers: bool, notes: tuple[str, ...] = ()) -> str:
     env = Environment(loader=PackageLoader("trustswap.synth.templates", "."),
                       autoescape=select_autoescape(default=True), undefined=StrictUndefined)
     return env.get_template(f"{family}.html.j2").render(
-        sections=sections, markers=markers, disclaimer=DISCLAIMER)
+        sections=sections, markers=markers, disclaimer=DISCLAIMER, notes=notes)
 
 
 def _no_resources(url, *args, **kwargs):
@@ -175,27 +175,50 @@ def _pdf_and_spans(marked_html: str, *, seed: int) -> tuple[bytes, str, dict[str
 
 
 def render_trade(trade: InterestRateSwap, *, seed: int, doc_id: str,
-                 template_family: str | None = None, output_dir: str | Path = "data") -> RenderResult:
+                 template_family: str | None = None, output_dir: str | Path = "data",
+                 collection: str = "synthetic", gold_trade: InterestRateSwap | None = None,
+                 field_text: dict[str, str] | None = None, omitted_fields: tuple[str, ...] = (),
+                 notes: tuple[str, ...] = (), adversarial: AdversarialMetadata | None = None) -> RenderResult:
     """Render and save a synthetic PDF, HTML, ingested text and both JSONL records.
 
     Family splits are fixed in templates.FAMILY_SPLITS. No user-supplied split
     overrides, network resources, raw-file writes or output overwrites are allowed.
     """
+    if collection not in {"synthetic", "adversarial"}:
+        raise ValueError("renderer only writes generated collections")
+    if (collection == "adversarial") != (adversarial is not None):
+        raise ValueError("adversarial rendering requires defect metadata")
+    if collection == "synthetic" and (gold_trade is not None or field_text or omitted_fields or notes):
+        raise ValueError("document/gold edits require an adversarial record")
+    gold_trade = gold_trade if gold_trade is not None else trade
+    known = trade_fields(trade)
+    if trade_fields(gold_trade).keys() != known.keys():
+        raise ValueError("display and gold must have matching field paths")
+    if any(path not in known for path in (*omitted_fields, *(field_text or {}))):
+        raise ValueError("unknown edited field path")
+    if adversarial and any(path not in known for path in adversarial.affected_fields):
+        raise ValueError("unknown affected field path")
+    if any(trade_fields(gold_trade)[path].status != "absent" for path in omitted_fields):
+        raise ValueError("omitted fields must have absent gold")
     family = template_family or Random(seed).choice(tuple(FAMILY_SPLITS))
     if family not in FAMILY_SPLITS:
         raise ValueError(f"unknown template family: {family}")
     root = Path(output_dir)
     # Validate identifiers before using them in paths.
-    DocumentRecord(doc_id=doc_id, collection="synthetic", sha256="0" * 64, text_path="pending", ocr=False)
-    html_path = root / "synthetic" / "html" / f"{doc_id}.html"
-    pdf_path = root / "synthetic" / "pdf" / f"{doc_id}.pdf"
-    for path in (html_path, pdf_path, root / "synthetic" / "text" / f"{doc_id}.txt",
-                 root / "synthetic" / "text" / f"{doc_id}.offsets.json"):
+    DocumentRecord(doc_id=doc_id, collection=collection, sha256="0" * 64, text_path="pending", ocr=False)
+    html_path = root / collection / "html" / f"{doc_id}.html"
+    pdf_path = root / collection / "pdf" / f"{doc_id}.pdf"
+    for path in (html_path, pdf_path, root / collection / "text" / f"{doc_id}.txt",
+                 root / collection / "text" / f"{doc_id}.offsets.json"):
         _protect_raw(path)
         if path.exists():
             raise FileExistsError(path)
     sections = _context(trade, seed, family)
-    pdf, expected_text, spans = _pdf_and_spans(_html(sections, family, markers=True), seed=seed)
+    for section in sections:
+        section["rows"] = [row for row in section["rows"] if row["path"] not in omitted_fields]
+        for row in section["rows"]:
+            row["text"] = (field_text or {}).get(row["path"], row["text"])
+    pdf, expected_text, spans = _pdf_and_spans(_html(sections, family, markers=True, notes=notes), seed=seed)
     expected_fields = {row["path"]: row["text"] for section in sections for row in section["rows"]}
     if spans.keys() != expected_fields.keys():
         raise ValueError("some rendered field markers are missing from the PDF")
@@ -203,9 +226,9 @@ def render_trade(trade: InterestRateSwap, *, seed: int, doc_id: str,
         start, end = spans[key]
         if normalise_whitespace(expected_text[start:end])[0] != normalise_whitespace(phrase)[0]:
             raise ValueError(f"PDF layout changed the visible field value: {key}")
-    annotated = trade.model_copy(deep=True)
+    annotated = gold_trade.model_copy(deep=True)
     for key, field in trade_fields(annotated).items():
-        field.span = spans.get(key)
+        field.span = None if field.status in {"absent", "ambiguous"} else spans.get(key)
     annotated = InterestRateSwap.model_validate(annotated.model_dump())
     with TemporaryDirectory(prefix="trustswap-render-") as directory:
         temporary = Path(directory) / "document.pdf"
@@ -216,11 +239,12 @@ def render_trade(trade: InterestRateSwap, *, seed: int, doc_id: str,
     html_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     with html_path.open("x", encoding="utf-8") as handle:
-        handle.write(_html(sections, family, markers=False))
+        handle.write(_html(sections, family, markers=False, notes=notes))
     with pdf_path.open("xb") as handle:
         handle.write(pdf)
-    text, meta = ingest_document(pdf_path, collection="synthetic", output_dir=root, doc_id=doc_id,
-                                 family_id=family, split=FAMILY_SPLITS[family])
-    document = DocumentRecord.model_validate({key: meta[key] for key in DocumentRecord.model_fields})
-    gold = write_gold_record(annotated, doc_id=doc_id, seed=seed, output_dir=root, template_family=family)
+    text, meta = ingest_document(pdf_path, collection=collection, output_dir=root, doc_id=doc_id,
+                                 family_id=family, split="adv_test" if adversarial else FAMILY_SPLITS[family], adversarial=adversarial)
+    document = DocumentRecord.model_validate({key: meta[key] for key in DocumentRecord.model_fields if key in meta})
+    gold = write_gold_record(annotated, doc_id=doc_id, seed=seed, output_dir=root, template_family=family,
+                             collection=collection, adversarial=adversarial)
     return RenderResult(html_path, pdf_path, text, document, gold)

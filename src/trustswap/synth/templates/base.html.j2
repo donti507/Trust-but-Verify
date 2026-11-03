@@ -19,4 +19,5 @@ th { width: 39%; font-weight: normal; }
 {% if markers %}<a class="value" href="urn:trustswap:field:{{ row.path }}">{{ row.text }}</a>{% else %}<span class="value">{{ row.text }}</span>{% endif %}
 {%- endmacro %}
 {% block content %}{% endblock %}
+{% for note in notes %}<p class="term">{{ note }}</p>{% endfor %}
 </body></html>

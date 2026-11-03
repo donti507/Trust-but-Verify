@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from trustswap.common.hashing import sha256_bytes
-from trustswap.common.records import DocumentRecord
+from trustswap.common.records import AdversarialMetadata, DocumentRecord
 
 
 def normalise_whitespace(source: str) -> tuple[str, list[tuple[int, int]]]:
@@ -147,7 +147,8 @@ def _protect_raw(path: Path) -> None:
 def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path = "data",
                     doc_id: str | None = None, source_url: str | None = None,
                     parent_id: str | None = None, defect: str | None = None,
-                    family_id: str | None = None, split: str | None = None) -> tuple[str, dict]:
+                    family_id: str | None = None, split: str | None = None,
+                    adversarial: AdversarialMetadata | None = None) -> tuple[str, dict]:
     """Save text and offsets, then append a DocumentRecord to collection/docs.jsonl.
 
     output_dir is the data root. Input and existing text/offset files are never
@@ -171,9 +172,12 @@ def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path
     for target in (text_path, offsets_path):
         if target.exists():
             raise FileExistsError(target)
+    extra = adversarial.model_dump() if adversarial else {}
+    if adversarial:
+        parent_id, defect = extra.pop("parent_id"), extra.pop("defect")
     record = DocumentRecord(doc_id=doc_id, collection=collection, sha256=meta["sha256"],
                             text_path=str(text_path), ocr=meta["ocr"], source_url=source_url,
-                            parent_id=parent_id, defect=defect, family_id=family_id, split=split)
+                            parent_id=parent_id, defect=defect, family_id=family_id, split=split, **extra)
     text_path.parent.mkdir(parents=True, exist_ok=True)
     with text_path.open("x", encoding="utf-8", newline="") as handle:
         handle.write(text)
