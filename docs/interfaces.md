@@ -46,8 +46,9 @@ positions in extracted text, not PDF byte offsets, bounding boxes, or HTML marku
 `sample_trade(random.Random(seed))` returns an `InterestRateSwap`. Fixed/float
 records use `fixed_leg` and `floating_leg`; float/float records use
 `floating_leg` and `floating_leg_2`, with `fixed_leg` null. Exactly one of
-`fixed_leg` and `floating_leg_2` must be present. Every extracted field is
-explicit with a non-null value and a null span before rendering.
+`fixed_leg` and `floating_leg_2` must be present. Every applicable extracted field is explicit with a non-null value and a null
+span before rendering. Fixed-leg reset frequency is absent with null value and
+span; fixed legs do not reset.
 
 Sampling uses the market assumptions in `synth/markets.py`, QuantLib settlement
 calendars, business-day trade dates, T+0 effectiveness for GBP and T+2
@@ -91,7 +92,8 @@ the sampler version is `0.1`. No raw files are modified.
 returns a `RenderResult` containing HTML/PDF paths, ingested text, a
 `DocumentRecord`, and a `GoldRecord`. Omitting `template_family` chooses a family
 deterministically from the rendering seed. The input trade is never mutated.
-All supplied term fields must have explicit, non-null values.
+Applicable term fields must have explicit, non-null values. Absent fields are
+not rendered and retain null spans.
 
 Artifacts are written to `data/synthetic/html/<doc_id>.html`,
 `data/synthetic/pdf/<doc_id>.pdf`, and `data/synthetic/text/<doc_id>.txt` with its
@@ -133,3 +135,8 @@ human-readable formats. Tests compare the span text using Step 1 normalisers;
 index spelling and center-list order are compared in canonical form. The
 renderer rejects missing, overlapping or mismatched markers and refuses existing
 artifact paths and all writes under `data/raw/`.
+
+PDF creation and modification metadata are fixed at `2026-01-01T00:00:00Z`.
+The PDF identifier is SHA-256 of `trustswap-pdf:<rendering seed>`. Marker removal
+preserves that identifier. Fixed-seed tests compare HTML/PDF bytes, ingested text
+and all gold spans. Byte reproducibility assumes the same renderer and fonts.

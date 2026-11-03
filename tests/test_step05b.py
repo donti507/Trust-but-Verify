@@ -63,6 +63,10 @@ def test_fifty_trade_spans_normalise_to_gold(rendered):
         assert text.splitlines()[0] == DISCLAIMER
         occupied = []
         for path, field in trade_fields(result.gold.trade).items():
+            if field.status == "absent":
+                assert path == "fixed_leg.reset_frequency"
+                assert field.value is None and field.span is None
+                continue
             assert field.status == "explicit"
             assert field.span is not None
             start, end = field.span
@@ -121,7 +125,9 @@ def test_fixed_seed_determinism(tmp_path):
     right = render_trade(sample_trade(Random(40)), seed=40, doc_id="same", output_dir=tmp_path / "right")
     assert left.html_path.read_bytes() == right.html_path.read_bytes()
     assert left.pdf_path.read_bytes() == right.pdf_path.read_bytes()
-    assert left.text == right.text
+    assert left.text == right.text == to_text(left.pdf_path)[0] == to_text(right.pdf_path)[0]
+    assert {path: field.span for path, field in trade_fields(left.gold.trade).items()} == {
+        path: field.span for path, field in trade_fields(right.gold.trade).items()}
     assert left.gold == right.gold
     assert left.document.sha256 == right.document.sha256
 
@@ -174,3 +180,35 @@ def test_html_escaping_and_no_external_resources(tmp_path, monkeypatch):
     assert result.text[start:end] == trade.notice_address.value
     with pytest.raises(ValueError, match="forbidden"):
         _no_resources("https://example.com/image.png")
+
+
+def test_fixed_reset_is_not_rendered(rendered):
+    from bs4 import BeautifulSoup
+    from trustswap.synth.render import _context
+
+    fixed = [(trade, result) for trade, result in zip(rendered[1], rendered[2]) if trade.fixed_leg is not None]
+    assert fixed
+    for trade, result in fixed:
+        sections = _context(trade, result.gold.generator.seed, result.document.family_id)
+        assert all(row["path"] != "fixed_leg.reset_frequency" for section in sections for row in section["rows"])
+        field = result.gold.trade.fixed_leg.reset_frequency
+        assert field.status == "absent" and field.value is None and field.span is None
+        soup = BeautifulSoup(result.html_path.read_text(), "html.parser")
+        heading = next(h for h in soup.find_all("h2") if h.get_text().strip().lower() == "fixed leg")
+        content = []
+        for sibling in heading.next_siblings:
+            if getattr(sibling, "name", None) == "h2":
+                break
+            content.append(sibling.get_text() if hasattr(sibling, "get_text") else str(sibling))
+        assert "reset" not in " ".join(content).lower()
+
+
+def test_pdf_metadata_and_seed_identifier(tmp_path):
+    trade = sample_trade(Random(40))
+    result = render_trade(trade, seed=40, doc_id="metadata", output_dir=tmp_path)
+    with pymupdf.open(result.pdf_path) as document:
+        assert document.metadata["creationDate"] == "D:20260101000000Z"
+        assert document.metadata["modDate"] == "D:20260101000000Z"
+        identifier = hashlib.sha256(b"trustswap-pdf:40").hexdigest()
+        trailer_id = document.xref_get_key(-1, "ID")[1].upper()
+        assert f"({identifier.upper()})" in trailer_id or f"<{identifier.encode().hex().upper()}>" in trailer_id

@@ -78,6 +78,7 @@ def sample_trade(rng: Random) -> InterestRateSwap:
               "notice_address": _field("Synthetic Party A, 1 Example Street, Example City")}
     if fixed_float:
         fixed = leg(party_a, party_b, False)
+        fixed["reset_frequency"] = {"value": None, "span": None, "status": "absent"}
         low, high = rate_bounds(trade_date)
         fixed["fixed_rate"] = _field((Decimal(rng.randint(low, high)) / Decimal(10000)).quantize(Decimal("0.0001")))
         record["fixed_leg"] = fixed
