@@ -1,0 +1,4 @@
+{"hits":{"total":{"value":3,"relation":"eq"},"hits":[
+{"_id":"0000123456-20-000001:swap-ex101.htm","_source":{"adsh":"0000123456-20-000001","ciks":["0000123456"],"display_names":["Example Issuer, Inc. (CIK 0000123456)"],"root_forms":["8-K"],"file_type":"EX-10.1","file_date":"2020-03-02"}},
+{"_id":"0000123456-21-000002:swap.txt","_source":{"adsh":"0000123456-21-000002","ciks":["0000123456"],"display_names":["Example Issuer, Inc. (CIK 0000123456)"],"root_forms":["10-Q"],"file_type":"EX-10","file_date":"2021-05-04"}}
+]}}
