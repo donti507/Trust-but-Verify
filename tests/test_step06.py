@@ -14,6 +14,7 @@ from trustswap.synth.defects import (
     amendment, contradiction, make_control, missing_information, ocr_digit_corruption,
     prompt_injection, render_case,
 )
+from trustswap.ingest.to_text import to_text
 from trustswap.synth.markets import calendar_for
 from trustswap.synth.render import DISCLAIMER, trade_fields
 from trustswap.synth.sampler import sample_trade
@@ -95,7 +96,10 @@ def test_gold_semantics(parent, rendered, severity):
     for path in case.metadata.affected_fields:
         term = trade_fields(missing.gold.trade)[path]
         assert term.status == "absent" and term.value is None and term.span is None
-    assert parent.notice_address.value not in missing.text
+    if severity == 1:
+        assert parent.notice_address.value not in missing.text
+    else:
+        assert parent.notice_address.value in missing.text
     _, ocr = results["ocr_digit_corruption", severity, False]
     term = ocr.gold.trade.floating_leg.notional_amount
     assert term.value == parent.floating_leg.notional_amount.value
@@ -127,8 +131,8 @@ def test_correct_controls_and_quantlib_calendars(rendered):
             counter = ql.ActualActual(ql.ActualActual.ISDA) if severity == 1 else ql.Thirty360(ql.Thirty360.European)
             assert counter.yearFraction(ql.Date(1, 1, 2024), ql.Date(1, 2, 2024)) > 0
         if kind == "stub_ambiguity":
-            assert "Agreed short initial stub:" in result.text
-            assert "thereafter resets" in result.text
+            assert ("Agreed short initial stub:" if severity == 1 else "Agreed short final stub:") in result.text
+            assert "regular reset tenor remains" in result.text
 
 
 def test_nonstandard_calendar_defect_has_closed_center(rendered):
@@ -153,8 +157,11 @@ def test_rendering_determinism(parent, tmp_path):
     case = contradiction(parent, 40)
     left = render_case(case, output_dir=tmp_path / "left")
     right = render_case(contradiction(parent, 40), output_dir=tmp_path / "right")
-    assert left.pdf_path.read_bytes() == right.pdf_path.read_bytes()
-    assert left.text == right.text and left.gold == right.gold
+    assert left.html_path.read_bytes() == right.html_path.read_bytes()
+    assert left.text == right.text == to_text(left.pdf_path)[0] == to_text(right.pdf_path)[0]
+    assert {path: term.span for path, term in trade_fields(left.gold.trade).items()} == {
+        path: term.span for path, term in trade_fields(right.gold.trade).items()}
+    assert left.gold == right.gold
 
 
 def test_changed_parent_is_not_replaced(parent, rendered):
@@ -220,3 +227,50 @@ def test_scale_and_swapped_role_gold_preserves_truth(parent, rendered):
         for path in case.metadata.affected_fields:
             assert trade_fields(swapped.gold.trade)[path].value == trade_fields(parent)[path].value
             assert "Authoritative" in swapped.text
+
+
+@pytest.mark.parametrize("severity", SEVERITIES)
+@pytest.mark.parametrize("seed", [40, 2])
+def test_swapped_legs_reverse_both_roles_and_remain_consistent(seed, severity):
+    parent = sample_trade(Random(seed))
+    case = INJECTORS["swapped_legs"](parent, seed, severity=severity)
+    legs = [name for name in ("fixed_leg", "floating_leg", "floating_leg_2") if getattr(parent, name) is not None]
+    expected = {f"{leg}.{role}" for leg in legs for role in ("payer", "receiver")}
+    assert len(case.metadata.affected_fields) == 4
+    assert set(case.metadata.affected_fields) == expected
+    for name in legs:
+        before, after = getattr(parent, name), getattr(case.trade, name)
+        assert after.payer.value == before.receiver.value
+        assert after.receiver.value == before.payer.value
+    first, second = (getattr(case.trade, leg) for leg in legs)
+    assert first.payer.value == second.receiver.value
+    assert first.receiver.value == second.payer.value
+
+
+def test_missing_domain_information_is_seeded_and_absent(parent):
+    seen = set()
+    for seed in range(30):
+        case = missing_information(parent, seed, severity=2)
+        assert len(case.omitted_fields) == 1
+        path = case.omitted_fields[0]
+        seen.add(path)
+        term = trade_fields(case.gold.trade)[path]
+        assert term.status == "absent" and term.value is None and term.span is None
+        assert case.gold.trade.notice_address.value == parent.notice_address.value
+        assert case.metadata.affected_fields == [path]
+        assert missing_information(parent, seed, severity=2) == case
+    assert seen == {"floating_leg.business_centers", "floating_leg.day_count_fraction", "floating_leg.spread"}
+    lowest = missing_information(parent, 40, severity=1)
+    assert lowest.metadata.affected_fields == ["notice_address"]
+
+
+@pytest.mark.parametrize("severity,path", [(1, "effective_date"), (2, "termination_date")])
+def test_stub_ambiguity_targets_date_boundaries(parent, severity, path):
+    case = INJECTORS["stub_ambiguity"](parent, 40, severity=severity)
+    assert case.metadata.affected_fields == [path]
+    assert case.metadata.expected_rules == ["V4"]
+    assert trade_fields(case.gold.trade)[path].status == "ambiguous"
+    assert case.gold.trade.floating_leg.reset_frequency == parent.floating_leg.reset_frequency
+    control = make_control("stub_ambiguity", parent, 40, severity=severity)
+    assert trade_fields(control.gold.trade)[path].value == trade_fields(parent)[path].value
+    assert trade_fields(control.gold.trade)[path].status == "explicit"

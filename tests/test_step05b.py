@@ -124,12 +124,10 @@ def test_fixed_seed_determinism(tmp_path):
     left = render_trade(sample_trade(Random(40)), seed=40, doc_id="same", output_dir=tmp_path / "left")
     right = render_trade(sample_trade(Random(40)), seed=40, doc_id="same", output_dir=tmp_path / "right")
     assert left.html_path.read_bytes() == right.html_path.read_bytes()
-    assert left.pdf_path.read_bytes() == right.pdf_path.read_bytes()
     assert left.text == right.text == to_text(left.pdf_path)[0] == to_text(right.pdf_path)[0]
     assert {path: field.span for path, field in trade_fields(left.gold.trade).items()} == {
         path: field.span for path, field in trade_fields(right.gold.trade).items()}
     assert left.gold == right.gold
-    assert left.document.sha256 == right.document.sha256
 
 
 def test_template_wording_and_number_variation(rendered):

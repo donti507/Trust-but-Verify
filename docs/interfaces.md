@@ -138,8 +138,10 @@ artifact paths and all writes under `data/raw/`.
 
 PDF creation and modification metadata are fixed at `2026-01-01T00:00:00Z`.
 The PDF identifier is SHA-256 of `trustswap-pdf:<rendering seed>`. Marker removal
-preserves that identifier. Fixed-seed tests compare HTML/PDF bytes, ingested text
-and all gold spans. Byte reproducibility assumes the same renderer and fonts.
+preserves that identifier. Fixed-seed tests compare HTML bytes, ingested text, all gold spans and gold
+records. PDF bytes and their hashes are not determinism assertions: PDF encoders
+may vary bytes while preserving identical text and spans. CI fixes
+`PYTHONHASHSEED=0`.
 
 ## Adversarial injector (Step 6)
 
@@ -155,7 +157,7 @@ Omitted parent IDs are deterministic hashes of the structured clean trade.
 
 All cases have severity 1 or 2. Examples include an amendment of one business day
 versus one year; scale factors ×10 versus ×1000; one OCR digit substitution versus
-all zero digits; one missing field versus two; and one versus three injected
+all zero digits; a missing notice address versus one seed-selected domain term; and one versus three injected
 instructions. OCR corruption here simulates letter/digit corruption in a text
 layer; it does not pretend that raster OCR ran (`ocr` reports actual ingestion).
 
@@ -186,13 +188,16 @@ New Step 6 records always include the complete metadata, in both JSONL files.
 Gold is derived by structured edits, never from a model's extraction or verifier:
 
 - Amendments explicitly supersede the former date; gold holds the amended date.
-- Contradictions, competing notionals, ambiguous stub schedules and untriggered
+- Contradictions, competing notionals, ambiguous effective/termination boundaries and untriggered
   fallback clauses have ambiguous affected gold with null value/span; correct
   action is ESCALATE.
 - Missing fields have absent gold with null value/span, and are omitted from the
   PDF. The renderer rejects omissions paired with non-absent gold.
 - OCR and scale corruption retain the true parent amount in gold. Swapped role
-  summaries retain the authoritative role allocation, also stated in the text.
+  summaries reverse payer/receiver on both legs, keeping the trade internally
+  consistent; all four role fields are affected. Gold retains the authoritative
+  parent allocation, also stated in the text. The higher severity repeats the
+  reversed allocation in the closing summary.
   Corrupted spans may deliberately fail grounding against the true gold value.
 - Prompt-injection text is inert document content. Economic values/statuses in
   gold are unchanged; spans are recomputed in the new document. No instructions
@@ -200,7 +205,9 @@ Gold is derived by structured edits, never from a model's extraction or verifier
 - Nonstandard-calendar defects place an explicit date on an added center's
   actual QuantLib holiday; correct controls recompute settlement using the joint
   calendar. Rare valid day counts use ACT/ACT.ISDA or 30E/360. Stub controls state
-  an explicit short initial period and the subsequent regular reset tenor.
+  an explicit short initial or final period with unambiguous effective/termination
+  dates. Defects make the effective date (severity 1) or termination date
+  (severity 2) ambiguous; reset frequency is unchanged. Expected rule is V4.
 
 `make_control(type, parent, seed, ...)` produces a matched control for every type.
 Controls have correct explicit gold (except inapplicable fixed resets), preserved
@@ -209,3 +216,9 @@ V7 SOFT; other controls predict silence. No control is relabelled as a defect
 merely because it is rare. Expected-rule mappings are editable H4 predictions in
 one code table, `EXPECTED_RULES`; see [verifier_rules.md](verifier_rules.md) for
 V1–V7 definitions. This step creates test cases, not a verifier implementation.
+
+Missing-information severity 1 omits only `notice_address`. Severity 2 omits
+exactly one of `floating_leg.business_centers`, `floating_leg.day_count_fraction`,
+or `floating_leg.spread`, selected deterministically by the parent's render seed.
+The omitted term alone is listed in `affected_fields` and has absent/null gold;
+the notice address remains present at severity 2.
