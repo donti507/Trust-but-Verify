@@ -65,6 +65,38 @@ All data outputs remain Git-ignored. The script does not assign splits, label
 real documents, or inspect `real_test`. Tests use saved synthetic JSON responses
 and a mocked HTTP layer; this development task does not run the live search.
 
+## How to run: EDGAR screen (Step 3B)
+
+After Step 3A, with the project installed and `SEC_USER_AGENT` still set:
+
+```bash
+python scripts/edgar_screen.py --seed 20261026
+```
+
+This takes 75 unique candidates from each era (2001–2005, 2006–2008,
+2009–2021, 2022–today), for 300 total. It refuses undersized strata before
+network access. Downloads reuse Step 3A's four-per-second client and verified,
+non-overwriting `data/raw/edgar/manifest.jsonl`. Step 2 writes unassigned real
+records, text and offset maps; unchanged files can be reused on a retry.
+
+`data/real/screen.csv` records term flags, page count/basis, score, era and a
+heuristic triage label. All four term groups plus fewer than 40 pages means
+`likely_confirmation`; at least two groups means `maybe`; otherwise `unlikely`.
+PDF page counts are exact. HTML/TXT counts are marked `estimated_text_layout`:
+A4, 16 mm margins, 10 pt DejaVu Serif, ingested text only, with remote resources
+blocked. These are triage estimates, not claims about a source HTML page count.
+
+`data/real/manual_check.csv` has 60 seeded random rows, 20 per label, with an
+empty `is_confirmation` column for a human. If a label has fewer than 20 rows,
+the script saves/prints the screen results and reports the shortage without
+writing a partial manual sample. It never duplicates examples or invents human
+labels. Existing manual-check files are protected: preserve/move one before
+rerunning. Screening does not write gold labels or assign train/test splits,
+and refuses to reuse a document that already has a split.
+
+Use `--data-root`, `--candidates` or `--raw-dir` for alternate local paths.
+Tests use only fictional saved fixtures and mocked HTTP, not SEC downloads.
+
 ## Layout
 ```
 configs/   experiment configs (YAML)
