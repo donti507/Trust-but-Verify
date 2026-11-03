@@ -222,3 +222,17 @@ exactly one of `floating_leg.business_centers`, `floating_leg.day_count_fraction
 or `floating_leg.spread`, selected deterministically by the parent's render seed.
 The omitted term alone is listed in `affected_fields` and has absent/null gold;
 the notice address remains present at severity 2.
+
+
+## Screening-specific ingestion (Step 3B)
+
+`to_text` and `ingest_document` accept `ocr_enabled=False`; the default remains
+True for ordinary ingestion. Metadata includes `needs_ocr` when PDF pages lack
+extractable text and OCR is disabled. Screening stages new artifacts in a bounded
+worker, discards incomplete extractions, and labels such PDFs `needs_ocr` without
+publishing an incomplete document record. Oversized raw files are `too_large`.
+HTML/TXT page estimates are `ceil(len(text)/3000)` with basis `estimated_chars`;
+PDF page counts use PyMuPDF with basis `pdf`. Skipped large files use
+`not_screened` and leave page/score fields blank. Screen errors/timeouts are
+logged in `data/real/screen_failures.csv`; cached screen results and ingested
+text support resume without raw re-downloads or source re-extraction.
