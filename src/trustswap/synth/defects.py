@@ -128,13 +128,17 @@ def _inject(kind, parent, render_seed, *, severity=1, parent_id=None, control=Fa
         change("effective_date", day.to_date())
         notes.append("The additional centers are binding for the effective date; all centers must be open.")
     elif kind == "swapped_legs":
-        for leg in (["floating_leg"] if severity == 1 else leg_names):
+        for leg in leg_names:
             for role, opposite in (("payer", "receiver"), ("receiver", "payer")):
                 path = f"{leg}.{role}"
                 affected.append(path)
                 edits[path] = getattr(getattr(original, leg), role if control else opposite).value
+                trade_fields(display)[path].value = edits[path]
                 notes.append(f"Authoritative {leg} {role}: {getattr(getattr(original, leg), role).value}. "
                              "This allocation governs over any summary label.")
+        if severity == 2:
+            notes.append("Closing allocation summary: " + "; ".join(
+                f"{path}: {value}" for path, value in edits.items()))
     elif kind == "scale_error":
         affected.append(amount_path)
         edits[amount_path] = (f"{currency} {amount / Decimal(1000000):f} million" if control else
@@ -147,20 +151,23 @@ def _inject(kind, parent, render_seed, *, severity=1, parent_id=None, control=Fa
                      f"The calculation schedule assumes the standard index basis {original.floating_leg.day_count_fraction.value}; "
                      "the summary specifies a nonstandard basis.")
     elif kind == "stub_ambiguity":
-        path = "floating_leg.reset_frequency"
-        start = _qdate(original.effective_date.value)
+        path = "effective_date" if severity == 1 else "termination_date"
         calendar = calendar_for(original.floating_leg.business_centers.value)
-        end = calendar.advance(start, ql.Period(1 if severity == 1 else 2, ql.Months), ql.ModifiedFollowing)
+        boundary = _qdate(trade_fields(original)[path].value)
+        other = calendar.advance(boundary, ql.Period(1 if severity == 1 else -2, ql.Months), ql.ModifiedFollowing)
         if control:
             affected.append(path)
-            notes.append(f"Agreed short initial stub: {start.to_date()} to {end.to_date()}; "
-                         f"thereafter resets every {original.floating_leg.reset_frequency.value}. "
-                         "The short period does not change the regular reset tenor.")
+            label = "initial" if severity == 1 else "final"
+            start, end = (boundary, other) if severity == 1 else (other, boundary)
+            notes.append(f"Agreed short {label} stub: {start.to_date()} to {end.to_date()}; "
+                         f"the regular reset tenor remains {original.floating_leg.reset_frequency.value}. "
+                         f"The agreed {path} is {boundary.to_date()}.")
         else:
             ambiguous(path)
-            alternate = calendar.advance(end, ql.Period(1 if severity == 1 else 6, ql.Months), ql.ModifiedFollowing)
-            notes.append(f"Initial Calculation Period ends on either {end.to_date()} or {alternate.to_date()}; "
-                         "it is not stated which boundary controls the reset schedule.")
+            label = "first period starts" if severity == 1 else "last period ends"
+            notes.append(f"The irregular {label} on either {boundary.to_date()} or {other.to_date()}; "
+                         "both boundaries have equal authority and neither supersedes the other. "
+                         "The regular reset tenor is unchanged.")
     elif kind == "multiple_notionals":
         values = [amount] * (2 if severity == 1 else 3) if control else [amount, amount * 2] + ([amount * 5] if severity == 2 else [])
         notes.append("Notional alternatives: " + "; ".join(f"{currency} {value:,}" for value in values) +
@@ -188,10 +195,11 @@ def _inject(kind, parent, render_seed, *, severity=1, parent_id=None, control=Fa
         edits[amount_path] = correct if control else correct.replace("0", "O", 1 if severity == 1 else 100)
         notes.append("This transcription is derived from a synthetic source; letter/digit substitutions may be present.")
     elif kind == "missing_information":
-        omitted = ["notice_address"] + (["floating_leg.spread"] if severity == 2 else [])
+        omitted = ["notice_address"] if severity == 1 else ["floating_leg." + Random(render_seed).choice(
+            ("business_centers", "day_count_fraction", "spread"))]
         affected.extend(omitted)
         if control:
-            notes.append("The notice and margin terms are expressly supplied in the confirmation.")
+            notes.append("The affected term is expressly supplied in the confirmation.")
             omitted = []
         else:
             for path in omitted:
