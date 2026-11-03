@@ -8,6 +8,7 @@ from trustswap.common.schema import ExtractedField, InterestRateSwap
 from trustswap.common.normalise import (
     normalise_date, normalise_rate, normalise_notional,
     normalise_day_count, normalise_business_day_convention,
+    normalise_frequency, normalise_business_centers, normalise_floating_rate_option,
 )
 
 # Twenty independently specified examples, including partial and uncertain terms.
@@ -66,7 +67,7 @@ def test_swap_round_trip(trade, currency, amount, rate, status):
     assert swap.floating_leg.floating_rate_option.status == "by_reference"
 
 
-@pytest.mark.parametrize("value", ["4.25%", "0.0425", "425 bps"])
+@pytest.mark.parametrize("value", ["4.25%", "425 bps"])
 def test_rates(value):
     assert normalise_rate(value) == Decimal("0.0425")
 
@@ -104,3 +105,130 @@ def test_currency_override():
     assert normalise_notional("250 million", "usd") == (Decimal("250000000"), "USD")
     with pytest.raises(ValueError):
         normalise_notional("USD 250mm", "EUR")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("4.25 percent", "0.0425"), ("4.25 per cent", "0.0425"),
+    ("4.25 percent per annum", "0.0425"), ("4.25% p.a.", "0.0425"),
+    ("425 bp", "0.0425"), ("425 bps", "0.0425"),
+    ("425 basis points", "0.0425"), ("plus 4.25 percent", "0.0425"),
+    ("minus 425 bp", "-0.0425"), ("(4.25%)", "-0.0425"),
+    ("1.80000 percent", "0.0180000"),
+])
+def test_extended_rates(text, expected):
+    assert normalise_rate(text) == Decimal(expected)
+
+
+@pytest.mark.parametrize("value", ["0.0425", "4.25", Decimal("0.0425"), 0, 4.25])
+def test_bare_rates_are_ambiguous(value):
+    with pytest.raises(ValueError, match="^ambiguous rate unit$"):
+        normalise_rate(value)
+
+
+def test_explicit_rate_units():
+    assert normalise_rate("0.0425", unit="decimal") == Decimal("0.0425")
+    assert normalise_rate("4.25", unit="percent") == Decimal("0.0425")
+    with pytest.raises(ValueError, match="Conflicting"):
+        normalise_rate("4.25%", unit="decimal")
+    with pytest.raises(ValueError, match="Unsupported"):
+        normalise_rate("4.25", unit="unknown")
+
+
+@pytest.mark.parametrize("text,amount,currency", [
+    ("USD100,000,000", "100000000", "USD"),
+    ("$250 million", "250000000", "USD"),
+    ("US$250 million", "250000000", "USD"),
+    ("U.S.$250 million", "250000000", "USD"),
+    ("€250 million", "250000000", "EUR"),
+    ("£250 million", "250000000", "GBP"),
+    ("250 million USD", "250000000", "USD"),
+    ("250m", "250000000", None), ("250mm", "250000000", None),
+])
+def test_extended_notionals(text, amount, currency):
+    assert normalise_notional(text) == (Decimal(amount), currency)
+
+
+@pytest.mark.parametrize("text", ["250M", "USD 250 M", "250 M USD"])
+def test_ambiguous_notional_multiplier(text):
+    with pytest.raises(ValueError, match="ambiguous"):
+        normalise_notional(text)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Actual/365 (Fixed)", "ACT/365.FIXED"),
+    ("Actual/365 [Fixed]", "ACT/365.FIXED"),
+    ("Actual/Actual (ISDA)", "ACT/ACT.ISDA"),
+    ("Actual/Actual [ISDA]", "ACT/ACT.ISDA"),
+    ("Bond Basis", "30/360"), ("30/360 (Bond Basis)", "30/360"),
+    ("Act/Act ICMA", "ACT/ACT.ICMA"),
+])
+def test_extended_day_counts(text, expected):
+    assert normalise_day_count(text) == expected
+    assert normalise_day_count(expected) == expected
+
+
+def test_ambiguous_day_count():
+    with pytest.raises(ValueError, match="ambiguous"):
+        normalise_day_count("ACT/365")
+
+
+def test_business_day_suffix():
+    assert normalise_business_day_convention("Modified Following Business Day Convention") == "MODFOLLOWING"
+
+
+@pytest.mark.parametrize("text", ["20th March 2012", "20-Mar-2012", "March 20 2012"])
+def test_extended_dates(text):
+    assert normalise_date(text) == "2012-03-20"
+
+
+def test_numeric_month_day_date_rejected():
+    with pytest.raises(ValueError):
+        normalise_date("03/20/2012")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("quarterly", "3M"), ("semi-annual", "6M"), ("3 months", "3M"),
+    ("3M", "3M"), ("annual", "1Y"),
+])
+def test_frequencies(text, expected):
+    assert normalise_frequency(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("London", ["GBLO"]), ("New York", ["USNY"]),
+    ("TARGET", ["EUTA"]), ("Tokyo", ["JPTO"]),
+    ("London and New York, TARGET and Tokyo", ["EUTA", "GBLO", "JPTO", "USNY"]),
+    ("London, GBLO", ["GBLO"]),
+])
+def test_business_centers(text, expected):
+    assert normalise_business_centers(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "USD-LIBOR-BBA", "USD-SOFR", "USD-SOFR-COMPOUND",
+    "EUR-EURIBOR-Reuters", "EUR-EuroSTR", "GBP-SONIA",
+    "  usd  sofr compound  ",
+])
+def test_floating_rate_options(text):
+    assert normalise_floating_rate_option(text) == "-".join(text.upper().split())
+
+
+@pytest.mark.parametrize("fn,text", [
+    (normalise_frequency, "sometimes"), (normalise_frequency, "0M"),
+    (normalise_business_centers, "unknown"),
+    (normalise_floating_rate_option, "USD-UNKNOWN"),
+])
+def test_unknown_new_normalisers(fn, text):
+    with pytest.raises(ValueError):
+        fn(text)
+
+
+def test_floating_rate_reference_is_used(tmp_path, monkeypatch):
+    from trustswap.common import normalise
+
+    reference = tmp_path / "floating_rate_options.txt"
+    reference.write_text("TEST-CODE\n", encoding="utf-8")
+    monkeypatch.setattr(normalise, "_FLOATING_RATE_CODES", reference)
+    assert normalise_floating_rate_option("test code") == "TEST-CODE"
+    with pytest.raises(ValueError):
+        normalise_floating_rate_option("USD-SOFR")
