@@ -7,7 +7,7 @@ Only operators fill manual_check.csv's is_confirmation column.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from collections import Counter, deque
 import csv
 from datetime import date
 import hashlib
@@ -38,7 +38,7 @@ TERMS = {
     "has_rate": r"\b(?:fixed rate|floating rate option)\b",
 }
 SCREEN_COLUMNS = (*edgar_scope.COLUMNS, "doc_id", "era", "raw_path", "sha256", "text_path",
-                  "ocr", "page_count", "page_count_basis", *TERMS, "under_40_pages", "score", "label")
+                  "download_source", "resolved_source_url", "selected_filename", "ocr", "page_count", "page_count_basis", *TERMS, "under_40_pages", "score", "label")
 
 
 def era_for(filing_date: str, *, as_of: date | None = None) -> str | None:
@@ -138,7 +138,8 @@ def count_pages(path: str | Path, text: str) -> tuple[int, str]:
     return len(HTML(string=html, url_fetcher=no_resources).render().pages), "estimated_text_layout"
 
 
-def _ingest_or_reuse(candidate, raw_path, root, existing_records):
+def _ingest_or_reuse(candidate, raw_path, root, existing_records, *, source_url=None):
+    source_url = source_url or candidate.document_url
     doc_id = "real_" + hashlib.sha256(candidate.document_url.encode()).hexdigest()[:24]
     text_path = root / "real/text" / f"{doc_id}.txt"
     sidecar_path = text_path.with_suffix(".offsets.json")
@@ -147,7 +148,7 @@ def _ingest_or_reuse(candidate, raw_path, root, existing_records):
         if len(records) != 1:
             raise ValueError("duplicate ingested document ID")
         record = records[0]
-        if record.collection != "real" or record.source_url != candidate.document_url or record.split is not None:
+        if record.collection != "real" or record.source_url != source_url or record.split is not None:
             raise ValueError("existing document is not an unassigned candidate; refusing split access")
         text, meta = to_text(raw_path)
         if (record.sha256 != meta["sha256"] or not text_path.is_file() or not sidecar_path.is_file()
@@ -158,28 +159,69 @@ def _ingest_or_reuse(candidate, raw_path, root, existing_records):
         if offsets != {"source_text": meta["source_text"], "offset_map": [list(pair) for pair in meta["offset_map"]]}:
             raise ValueError("existing offset map differs; refusing overwrite")
         return text, {**meta, **record.model_dump()}
-    text, meta = ingest_document(raw_path, collection="real", source_url=candidate.document_url,
+    text, meta = ingest_document(raw_path, collection="real", source_url=source_url,
                                  doc_id=doc_id, output_dir=root)
     existing_records.append(DocumentRecord.model_validate({key: value for key, value in meta.items()
                                                          if key in DocumentRecord.model_fields}))
     return text, meta
 
 
-def screen_candidates(client, candidates, *, data_root="data", raw_dir=None, as_of=None):
+def download_sample(client, selected, pool, *, seed=DEFAULT_SEED, data_root="data", raw_dir=None, as_of=None):
+    """Try each unique URL once, replacing terminal failures within its era."""
+    root = Path(data_root)
+    raw_dir = Path(raw_dir) if raw_dir is not None else root / "raw/edgar"
+    selected_urls = {item.document_url for item in selected}
+    reserves = {era: {} for era in ERA_QUOTAS}
+    for item in pool:
+        era = era_for(item.filing_date, as_of=as_of)
+        if era and item.document_url not in selected_urls:
+            reserves[era][item.document_url] = item
+    rng = Random(seed)
+    for era in ERA_QUOTAS:
+        ordered = sorted(reserves[era].values(), key=lambda item: item.document_url)
+        rng.shuffle(ordered)
+        reserves[era] = deque(ordered)
+    pending, attempted, successes = deque(selected), set(), []
+    report = edgar_scope.DownloadReport()
+    while pending:
+        item = pending.popleft()
+        if item.document_url in attempted:
+            continue
+        attempted.add(item.document_url)
+        result = edgar_scope.download_candidates(client, [item], 1, raw_dir,
+                                                failure_path=root / "real/download_failures.csv")
+        report.merge(result)
+        if item.document_url in result.successes:
+            successes.append(item)
+        else:
+            era = era_for(item.filing_date, as_of=as_of)
+            if era and reserves[era]:
+                pending.append(reserves[era].popleft())
+    return successes, report
+
+
+def screen_candidates(client, candidates, *, data_root="data", raw_dir=None, as_of=None, download_report=None):
     root = Path(data_root)
     raw_dir = Path(raw_dir) if raw_dir is not None else root / "raw/edgar"
     # Shared Step 3A client supplies the User-Agent, rate limit and SHA-256 manifest.
-    edgar_scope.download_candidates(client, candidates, len(candidates), raw_dir)
+    report = download_report if download_report is not None else edgar_scope.download_candidates(
+        client, candidates, len(candidates), raw_dir, failure_path=root / "real/download_failures.csv")
     records_path = root / "real/docs.jsonl"
     records = [DocumentRecord.model_validate_json(line) for line in
                records_path.read_text(encoding="utf-8").splitlines()] if records_path.exists() else []
     rows = []
     for candidate in candidates:
-        raw_path = raw_dir / f"{candidate.cik}_{candidate.accession_number}_{candidate.exhibit_file_name}"
-        text, meta = _ingest_or_reuse(candidate, raw_path, root, records)
+        if candidate.document_url not in report.successes:
+            continue
+        entry = report.successes[candidate.document_url]
+        raw_path = Path(entry["path"])
+        source_url = entry.get("source_url", candidate.document_url)
+        text, meta = _ingest_or_reuse(candidate, raw_path, root, records, source_url=source_url)
         pages, basis = count_pages(raw_path, text)
         rows.append({**candidate.row(), "doc_id": meta["doc_id"], "era": era_for(candidate.filing_date, as_of=as_of),
                      "raw_path": str(raw_path), "sha256": meta["sha256"], "text_path": meta["text_path"],
+                     "download_source": entry.get("source", "exhibit"), "resolved_source_url": source_url,
+                     "selected_filename": entry.get("selected_filename", candidate.exhibit_file_name),
                      "ocr": meta["ocr"], "page_count": pages, "page_count_basis": basis,
                      **score_document(text, pages)})
     return rows
@@ -237,6 +279,7 @@ def main(argv=None):
     parser.add_argument("--raw-dir", type=Path)
     args = parser.parse_args(argv)
     manual_path = args.data_root / "real/manual_check.csv"
+    report = None
     try:
         client = edgar_scope.SECClient()
         # Protect any existing human work, including an as-yet-unfilled review CSV.
@@ -244,13 +287,24 @@ def main(argv=None):
             raise FileExistsError(f"manual review file already exists; preserve it before rerunning: {manual_path}")
         candidates = read_candidates(args.candidates or args.data_root / "real/candidates.csv")
         selected = stratified_sample(candidates, seed=args.seed)
-        rows = screen_candidates(client, selected, data_root=args.data_root, raw_dir=args.raw_dir)
+        successful, report = download_sample(client, selected, candidates, seed=args.seed,
+                                             data_root=args.data_root, raw_dir=args.raw_dir)
+        rows = screen_candidates(client, successful, data_root=args.data_root, raw_dir=args.raw_dir,
+                                 download_report=report)
         write_csv(args.data_root / "real/screen.csv", rows, SCREEN_COLUMNS)
         print_summary(rows)
+        if len(successful) != len(selected):
+            target = Counter(era_for(item.filing_date) for item in selected)
+            actual = Counter(row["era"] for row in rows)
+            shortage = "; ".join(f"{era}: {actual[era]}/{target[era]}" for era in ERA_QUOTAS if actual[era] < target[era])
+            raise ValueError(f"same-era replacement pool exhausted ({shortage}); successful screen.csv retained")
         manual = manual_sample(rows, seed=args.seed)
         write_csv(manual_path, manual, (*SCREEN_COLUMNS, "is_confirmation"))
     except (ValueError, FileExistsError) as error:
         parser.error(str(error))
+    finally:
+        if report is not None:
+            report.print_summary()
     return 0
 
 

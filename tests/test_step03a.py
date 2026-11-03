@@ -214,3 +214,78 @@ def test_main_mocked_end_to_end(monkeypatch, tmp_path, capsys):
     assert edgar.main(["--output", str(tmp_path / "candidates.csv")]) == 0
     assert (tmp_path / "candidates.csv").exists()
     assert "Unique candidate documents: 3" in capsys.readouterr().out
+
+
+def test_404_full_submission_filename_fallback_and_own_hash(tmp_path):
+    candidate = edgar.candidate_from_hit(json.loads(payload("overlap.json"))["hits"]["hits"][0])
+    candidate.matched_phrases.add("Floating Rate Option")  # Also occurs in the decoy primary block.
+    full = payload("full_submission.txt")
+    calls = []
+    def transport(url, headers):
+        calls.append(url)
+        return edgar.Response(404, {}, b"missing") if url == candidate.document_url else edgar.Response(200, {}, full)
+    failure_path = tmp_path / "real/download_failures.csv"
+    sec = client(transport)
+    report = edgar.download_candidates(sec, [candidate], 1, tmp_path / "raw/edgar", failure_path=failure_path)
+    assert not report.failures
+    entry = report.successes[candidate.document_url]
+    assert entry["source"] == "full_submission" and entry["selection"] == "filename"
+    assert entry["source_url"] == "https://www.sec.gov/Archives/edgar/data/123456/000012345620000001/0000123456-20-000001.txt"
+    block = Path(entry["path"]).read_bytes()
+    assert block.startswith(b"<DOCUMENT>") and block.endswith(b"</DOCUMENT>")
+    assert b"USD 100,000,000" in block and b"Primary filing" not in block
+    assert entry["sha256"] == hashlib.sha256(block).hexdigest()
+    assert entry["submission_sha256"] == hashlib.sha256(full).hexdigest()
+    failures = list(csv.DictReader(failure_path.open()))
+    assert failures[0]["url"] == candidate.document_url and failures[0]["status"] == "404"
+    edgar.download_candidates(sec, [candidate], 1, tmp_path / "raw/edgar", failure_path=failure_path)
+    assert len(calls) == 2  # Verified fallback resumes without another request.
+
+
+def test_full_submission_phrase_fallback_and_missing_block():
+    full = payload("full_submission.txt")
+    block, name, method = edgar.extract_submission_document(full, "unknown.htm", [edgar.PHRASES[0]])
+    assert name == "swap-ex101.htm" and method == "phrase"
+    assert b"Floating Rate Day Count Fraction" in block
+    with pytest.raises(ValueError, match="no matching"):
+        edgar.extract_submission_document(full, "unknown.htm", ["absent phrase"])
+
+
+def test_failed_fallback_and_other_http_errors_do_not_stop_downloads(tmp_path, capsys):
+    hits = json.loads(payload("page_1.json"))["hits"]["hits"]
+    first, second = [edgar.candidate_from_hit(hit) for hit in hits]
+    third = edgar.candidate_from_hit(json.loads(payload("page_2.json"))["hits"]["hits"][0])
+    calls = []
+    def transport(url, headers):
+        calls.append(url)
+        if url == first.document_url:
+            return edgar.Response(404, {}, b"missing exhibit")
+        if url == edgar.full_submission_url(first):
+            return edgar.Response(503, {}, b"unavailable")
+        if url == second.document_url:
+            return edgar.Response(403, {}, b"denied")
+        return edgar.Response(200, {}, b"third succeeds")
+    report = edgar.download_candidates(client(transport, max_retries=1), [first, second, third], 3,
+                                      tmp_path / "raw/edgar", failure_path=tmp_path / "real/download_failures.csv")
+    assert set(report.successes) == {third.document_url}
+    assert set(report.failures) == {first.document_url, second.document_url}
+    assert calls.count(edgar.full_submission_url(first)) == 2
+    rows = list(csv.DictReader((tmp_path / "real/download_failures.csv").open()))
+    assert [row["status"] for row in rows] == ["404", "503", "403"]
+    report.print_summary()
+    assert "Downloaded: 1" in capsys.readouterr().out
+
+
+def test_failed_network_request_retried_logged_and_followed_by_success(tmp_path):
+    from urllib.error import URLError
+    first, second = [edgar.candidate_from_hit(hit) for hit in json.loads(payload("page_1.json"))["hits"]["hits"]]
+    attempts = []
+    def transport(url, headers):
+        attempts.append(url)
+        if url == first.document_url:
+            raise URLError("connection lost")
+        return edgar.Response(200, {}, b"ok")
+    report = edgar.download_candidates(client(transport, max_retries=1), [first, second], 2,
+                                      tmp_path / "raw/edgar", failure_path=tmp_path / "real/download_failures.csv")
+    assert attempts.count(first.document_url) == 2
+    assert second.document_url in report.successes and first.document_url in report.failures

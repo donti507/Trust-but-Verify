@@ -78,6 +78,11 @@ This takes 75 unique candidates from each era (2001–2005, 2006–2008,
 network access. Downloads reuse Step 3A's four-per-second client and verified,
 non-overwriting `data/raw/edgar/manifest.jsonl`. Step 2 writes unassigned real
 records, text and offset maps; unchanged files can be reused on a retry.
+Failed candidates are replaced by seeded, unused candidates from the same era,
+maintaining 75 successful documents per era and 300 total when the pool permits.
+If an era is exhausted, the script still screens all successes and saves
+`screen.csv`, then reports the shortfall without duplicating rows or borrowing
+from another era.
 
 `data/real/screen.csv` records term flags, page count/basis, score, era and a
 heuristic triage label. All four term groups plus fewer than 40 pages means
@@ -107,3 +112,26 @@ results/   run outputs  (never committed)
 src/trustswap/{common,ingest,extract,verify,score,decide,synth,finetune,eval}
 tests/
 ```
+
+### Failed EDGAR downloads and submission recovery
+
+Remote HTTP/network failures after retries append URL, status (blank if unknown)
+and reason to `data/real/download_failures.csv`; other candidates continue.
+On an exhibit 404, both scripts try the accession's full `.txt` submission. They
+select the original `<DOCUMENT>` block by exhibit filename first, or the first
+block containing one of that candidate's matched phrases if no filename matches.
+The selected block is saved as a separate `.full_submission.txt` file with its
+own SHA-256. Its manifest entry records `source="full_submission"`, actual source
+URL, selected filename/method, and the full submission's hash. Normal downloads
+record `source="exhibit"`. Existing raw files are never overwritten.
+
+Screening ingests the selected SGML block as text even when the missing exhibit
+was named `.pdf`. Its CSV records `download_source`, `resolved_source_url`, and
+`selected_filename`, and the document record cites the actual source URL.
+Each command ends with **Downloaded**, **Recovered via fallback**, and **Failed**
+counts. Downloaded includes verified cached files and recoveries; recovered is a
+subset. Failed counts terminally unsuccessful candidates, not retry requests.
+The append-only failure log also records 404s that were subsequently recovered.
+Missing-block and fallback failures are logged and trigger same-era replacement
+in screening. Local manifest-integrity conflicts still stop rather than replace
+or silently trust altered files. No live SEC requests run in the tests.
