@@ -87,16 +87,16 @@ from another era.
 `data/real/screen.csv` records term flags, page count/basis, score, era and a
 heuristic triage label. All four term groups plus fewer than 40 pages means
 `likely_confirmation`; at least two groups means `maybe`; otherwise `unlikely`.
-PDF page counts are exact. HTML/TXT counts are marked `estimated_text_layout`:
-A4, 16 mm margins, 10 pt DejaVu Serif, ingested text only, with remote resources
-blocked. These are triage estimates, not claims about a source HTML page count.
+PDF page counts come directly from PyMuPDF. HTML/TXT counts are
+`ceil(len(text) / 3000)`, marked `estimated_chars`. Screening never renders
+HTML/TXT with WeasyPrint; these counts are character-based triage estimates.
 
 `data/real/manual_check.csv` has 60 seeded random rows, 20 per label, with an
 empty `is_confirmation` column for a human. If a label has fewer than 20 rows,
 the script saves/prints the screen results and reports the shortage without
 writing a partial manual sample. It never duplicates examples or invents human
-labels. Existing manual-check files are protected: preserve/move one before
-rerunning. Screening does not write gold labels or assign train/test splits,
+labels. Existing manual-check files are preserved while screening resumes; move one
+aside only if you want a new manual sample. Screening does not write gold labels or assign train/test splits,
 and refuses to reuse a document that already has a split.
 
 Use `--data-root`, `--candidates` or `--raw-dir` for alternate local paths.
@@ -135,3 +135,23 @@ The append-only failure log also records 404s that were subsequently recovered.
 Missing-block and fallback failures are logged and trigger same-era replacement
 in screening. Local manifest-integrity conflicts still stop rather than replace
 or silently trust altered files. No live SEC requests run in the tests.
+
+### Screening limits and resume
+
+Each document's ingest and score run in a separate process with a 60-second
+limit; a stuck native parser is terminated. Timeout and parsing errors append
+URL, status (`timeout`/`error`) and reason to `data/real/screen_failures.csv`, and
+the next document continues. New ingest files are staged and promoted only after
+successful processing, so timeouts cannot append partial document records.
+
+Screening disables OCR (ordinary Step 2 ingestion keeps OCR enabled by default).
+A PDF with any page lacking a text layer receives `needs_ocr`, with no OCR call
+or incomplete text record. Files larger than 15,000,000 bytes receive `too_large`
+and are not ingested. These labels appear in `screen.csv` and summary counts but
+are excluded from the three-label manual-check sample.
+
+Successful screen rows are checkpointed after each document. Resume reuses
+previous rows or saved ingested text without extracting original files again;
+already-ingested documents never trigger another download, even if raw files are
+missing. Existing manual-review answers are retained. Progress prints every 10
+documents, including cached results, skips and failures.

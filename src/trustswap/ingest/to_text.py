@@ -78,7 +78,7 @@ def _edgar_text(text: str) -> str:
     )
 
 
-def _pdf_text(data: bytes) -> tuple[str, bool]:
+def _pdf_text(data: bytes, *, ocr_enabled: bool = True) -> tuple[str, bool, bool]:
     import pdfplumber
     import pymupdf
 
@@ -91,6 +91,7 @@ def _pdf_text(data: bytes) -> tuple[str, bool]:
             pass
         pages = []
         ocr = False
+        needs_ocr = False
         with pymupdf.open(stream=data, filetype="pdf") as document:
             for index, page in enumerate(document):
                 text = ""
@@ -101,7 +102,9 @@ def _pdf_text(data: bytes) -> tuple[str, bool]:
                         pass
                 if not text.strip():
                     text = page.get_text("text")
-                if not text.strip():
+                if not text.strip() and not ocr_enabled:
+                    needs_ocr = True
+                elif not text.strip():
                     import pytesseract
                     from PIL import Image
 
@@ -110,18 +113,19 @@ def _pdf_text(data: bytes) -> tuple[str, bool]:
                     text = pytesseract.image_to_string(image)
                     ocr = True
                 pages.append(text)
-        return "\n\n".join(pages), ocr
+        return "\n\n".join(pages), ocr, needs_ocr
     finally:
         if plumber is not None:
             plumber.close()
 
 
-def to_text(path: str | Path) -> tuple[str, dict]:
+def to_text(path: str | Path, *, ocr_enabled: bool = True) -> tuple[str, dict]:
     """Read a document without modifying it; return text and provenance metadata."""
     path = Path(path)
     data = path.read_bytes()
     suffix = path.suffix.lower()
     ocr = False
+    needs_ocr = False
     encoding = None
     if suffix in {".html", ".htm"}:
         source = _html_text(data)
@@ -129,11 +133,11 @@ def to_text(path: str | Path) -> tuple[str, dict]:
         source, encoding = _decode_text(data)
         source = _edgar_text(source)
     elif suffix == ".pdf":
-        source, ocr = _pdf_text(data)
+        source, ocr, needs_ocr = _pdf_text(data, ocr_enabled=ocr_enabled)
     else:
         raise ValueError(f"Unsupported document extension: {suffix}")
     text, offsets = normalise_whitespace(source)
-    return text, {"sha256": sha256_bytes(data), "ocr": ocr, "encoding": encoding,
+    return text, {"sha256": sha256_bytes(data), "ocr": ocr, "encoding": encoding, "needs_ocr": needs_ocr,
                   "offset_map": offsets, "source_text": source}
 
 
@@ -148,7 +152,7 @@ def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path
                     doc_id: str | None = None, source_url: str | None = None,
                     parent_id: str | None = None, defect: str | None = None,
                     family_id: str | None = None, split: str | None = None,
-                    adversarial: AdversarialMetadata | None = None) -> tuple[str, dict]:
+                    adversarial: AdversarialMetadata | None = None, ocr_enabled: bool = True) -> tuple[str, dict]:
     """Save text and offsets, then append a DocumentRecord to collection/docs.jsonl.
 
     output_dir is the data root. Input and existing text/offset files are never
@@ -157,7 +161,7 @@ def ingest_document(path: str | Path, *, collection: str, output_dir: str | Path
     """
     if collection not in {"real", "synthetic", "adversarial"}:
         raise ValueError("collection must be real, synthetic or adversarial; unsafe path components")
-    text, meta = to_text(path)
+    text, meta = to_text(path, ocr_enabled=ocr_enabled)
     doc_id = f"{collection}_{meta['sha256']}" if doc_id is None else doc_id
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", doc_id):
         raise ValueError("doc_id must be a safe, nonempty path component")

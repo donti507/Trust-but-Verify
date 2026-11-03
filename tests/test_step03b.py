@@ -118,9 +118,9 @@ def test_native_pdf_pages_and_html_estimate(tmp_path):
         pdf.save()
         assert screen.count_pages(path, "irrelevant") == (pages, "pdf")
     pages, basis = screen.count_pages(FIXTURES / "likely.html", "A short <img src='https://example.invalid'> text")
-    assert pages == 1 and basis == "estimated_text_layout"
+    assert pages == 1 and basis == "estimated_chars"
     long_pages, _ = screen.count_pages(FIXTURES / "maybe.txt", "Long document line\n" * 4000)
-    assert long_pages >= 40
+    assert long_pages == 26
 
 
 def test_mock_download_ingest_score_and_resume(tmp_path):
@@ -181,8 +181,7 @@ def test_main_mocked_csv_outputs_and_protected_manual_review(tmp_path, monkeypat
         manual = list(csv.DictReader(handle))
     assert len(manual) == 3 and all(row["is_confirmation"] == "" for row in manual)
     saved = manual_path.read_bytes()
-    with pytest.raises(SystemExit):
-        screen.main(["--data-root", str(tmp_path)])
+    assert screen.main(["--data-root", str(tmp_path)]) == 0
     assert manual_path.read_bytes() == saved
     assert len(calls) == 12
 
@@ -221,8 +220,9 @@ def test_assigned_document_is_not_rescreened(tmp_path):
     record = json.loads(record_path.read_text())
     record["split"] = "real_cal"  # Fictional metadata, no actual dataset is read.
     record_path.write_text(json.dumps(record) + "\n")
-    with pytest.raises(ValueError, match="refusing split access"):
-        screen.screen_candidates(client, candidates, data_root=tmp_path)
+    assert screen.screen_candidates(client, candidates, data_root=tmp_path) == []
+    failure_path = tmp_path / "real/screen_failures.csv"
+    assert "refusing split access" in failure_path.read_text()
 
 
 def test_same_era_topups_produce_300_successes(tmp_path):
@@ -265,7 +265,7 @@ def test_full_submission_pdf_candidate_is_ingested_as_selected_sgml(tmp_path):
     assert row["resolved_source_url"] == edgar_scope.full_submission_url(item)
     assert row["selected_filename"] == "swap-ex101.htm"
     assert row["raw_path"].endswith(".full_submission.txt")
-    assert row["page_count_basis"] == "estimated_text_layout"
+    assert row["page_count_basis"] == "estimated_chars"
     assert row["label"] == "likely_confirmation"
     assert "Primary filing" not in Path(row["text_path"]).read_text()
     record = json.loads((tmp_path / "real/docs.jsonl").read_text())
@@ -298,3 +298,163 @@ def test_exhausted_pool_retains_screen_and_prints_download_counts(tmp_path, monk
         failures = list(csv.DictReader(handle))
     assert len(failures) == 1 and failures[0]["status"] == "403"
     assert not (tmp_path / "real/manual_check.csv").exists()
+
+
+def _sleeping_screen_worker(payload, connection):
+    import time
+    time.sleep(10)
+    connection.send({"unexpected": "worker should have been terminated"})
+
+
+@pytest.mark.parametrize("characters,pages", [(0, 0), (1, 1), (3000, 1), (3001, 2), (120000, 40)])
+def test_character_page_estimate_never_uses_weasyprint(monkeypatch, characters, pages):
+    import sys
+    monkeypatch.setitem(sys.modules, "weasyprint", None)
+    assert screen.count_pages("document.html", "x" * characters) == (pages, "estimated_chars")
+    assert screen.count_pages("document.txt", "é" * characters) == (pages, "estimated_chars")
+
+
+def test_hard_timeout_terminates_worker():
+    import multiprocessing
+    import time
+    before = {child.pid for child in multiprocessing.active_children()}
+    started = time.monotonic()
+    with pytest.raises(TimeoutError, match="exceeded"):
+        screen._run_document({}, timeout=0.1, worker=_sleeping_screen_worker)
+    assert time.monotonic() - started < 5
+    assert {child.pid for child in multiprocessing.active_children()} == before
+
+
+def test_timeout_is_logged_and_next_document_succeeds(tmp_path, monkeypatch):
+    items = small_candidates()[:2]
+    original = screen._run_document
+    seen_limits = []
+    def runner(payload, *, timeout):
+        seen_limits.append(timeout)
+        if payload["candidate"].document_url == items[0].document_url:
+            # Simulate an unfinished stage; none of it may become a real record.
+            (Path(payload["staging"]) / "partial.txt").write_text("unfinished")
+            raise TimeoutError("fixture document timed out")
+        return original(payload, timeout=timeout)
+    monkeypatch.setattr(screen, "_run_document", runner)
+    rows = screen.screen_candidates(fixture_client([]), items, data_root=tmp_path)
+    assert len(rows) == 1 and rows[0]["document_url"] == items[1].document_url
+    assert seen_limits == [60, 60]
+    with (tmp_path / "real/screen_failures.csv").open() as handle:
+        failures = list(csv.DictReader(handle))
+    assert failures[0]["url"] == items[0].document_url and failures[0]["status"] == "timeout"
+    records = (tmp_path / "real/docs.jsonl").read_text().splitlines()
+    assert len(records) == 1
+    assert not list((tmp_path / "real").glob(".screen-*"))
+
+
+def test_parse_error_is_logged_and_next_document_succeeds(tmp_path):
+    bad, good = candidate(90, 2024, "broken.pdf"), candidate(91, 2024, "likely.html")
+    clock = Clock()
+    def transport(url, headers):
+        return edgar_scope.Response(200, {}, b"not a PDF" if url == bad.document_url else (FIXTURES / "likely.html").read_bytes())
+    client = edgar_scope.SECClient("Test test@example.invalid", transport=transport, clock=clock.clock, sleep=clock.sleep)
+    rows = screen.screen_candidates(client, [bad, good], data_root=tmp_path)
+    assert len(rows) == 1 and rows[0]["document_url"] == good.document_url
+    with (tmp_path / "real/screen_failures.csv").open() as handle:
+        failure = next(csv.DictReader(handle))
+    assert failure["url"] == bad.document_url and failure["status"] == "error"
+
+
+def test_needs_ocr_never_calls_tesseract(tmp_path, monkeypatch):
+    import io
+    import pytesseract
+    from PIL import Image, ImageDraw
+    from reportlab.lib.utils import ImageReader
+    from trustswap.ingest.to_text import to_text
+
+    image = Image.new("RGB", (600, 100), "white")
+    ImageDraw.Draw(image).text((10, 10), "Raster confirmation", fill="black")
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.drawImage(ImageReader(image), 72, 650, width=400, height=80)
+    pdf.save()
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(buffer.getvalue())
+    monkeypatch.setattr(pytesseract, "image_to_string", lambda *args, **kwargs: pytest.fail("OCR must be disabled"))
+    text, meta = to_text(source, ocr_enabled=False)
+    assert text == "" and meta["needs_ocr"] is True and meta["ocr"] is False
+    item, clock = candidate(92, 2024, "scan.pdf"), Clock()
+    client = edgar_scope.SECClient("Test test@example.invalid", transport=lambda *args: edgar_scope.Response(200, {}, buffer.getvalue()),
+                                   clock=clock.clock, sleep=clock.sleep)
+    rows = screen.screen_candidates(client, [item], data_root=tmp_path / "data")
+    assert rows[0]["label"] == "needs_ocr" and rows[0]["ocr"] is False
+    assert rows[0]["page_count"] == 1 and rows[0]["page_count_basis"] == "pdf"
+    assert not (tmp_path / "data/real/docs.jsonl").exists()
+
+
+def test_over_15mb_is_skipped_without_ingest(tmp_path, monkeypatch):
+    item = candidate(93, 2024)
+    raw = tmp_path / "large.html"
+    with raw.open("wb") as handle:
+        handle.truncate(screen.MAX_FILE_BYTES + 1)
+    entry = {"document_url": item.document_url, "path": str(raw), "sha256": "0" * 64}
+    report = edgar_scope.DownloadReport(successes={item.document_url: entry})
+    monkeypatch.setattr(screen, "_run_document", lambda *args, **kwargs: pytest.fail("oversized files must not be parsed"))
+    rows = screen.screen_candidates(None, [item], data_root=tmp_path, download_report=report)
+    assert rows[0]["label"] == "too_large" and rows[0]["page_count_basis"] == "not_screened"
+    assert not (tmp_path / "real/docs.jsonl").exists()
+
+
+def test_resume_does_not_download_or_extract_even_when_raw_is_missing(tmp_path, monkeypatch):
+    items, calls = small_candidates()[:2], []
+    client = fixture_client(calls)
+    first = screen.screen_candidates(client, items, data_root=tmp_path)
+    records_before = (tmp_path / "real/docs.jsonl").read_bytes()
+    for raw in (tmp_path / "raw/edgar").iterdir():
+        raw.unlink()
+    monkeypatch.setattr(client, "get", lambda *args, **kwargs: pytest.fail("resume must not redownload"))
+    monkeypatch.setattr(screen, "_run_document", lambda *args, **kwargs: pytest.fail("completed docs must not be reprocessed"))
+    successful, report = screen.download_sample(client, items, items, data_root=tmp_path)
+    again = screen.screen_candidates(client, successful, data_root=tmp_path, download_report=report)
+    assert again == first and len(calls) == 2
+    assert (tmp_path / "real/docs.jsonl").read_bytes() == records_before
+
+
+def test_progress_every_ten_documents(tmp_path, capsys):
+    screen.screen_candidates(fixture_client([]), small_candidates(), data_root=tmp_path)
+    assert "Screening progress: 10/12 documents" in capsys.readouterr().out
+
+
+def test_legacy_ocr_screen_cache_is_invalidated(tmp_path, monkeypatch):
+    item = small_candidates()[0]
+    client = fixture_client([])
+    first = screen.screen_candidates(client, [item], data_root=tmp_path)[0]
+    # Simulate a previously OCR-enabled run's saved provenance and score.
+    record_path = tmp_path / "real/docs.jsonl"
+    record = json.loads(record_path.read_text())
+    record["ocr"] = True
+    record_path.write_text(json.dumps(record) + "\n")
+    first["ocr"] = True
+    screen.write_csv(tmp_path / "real/screen.csv", [first], screen.SCREEN_COLUMNS)
+    calls = []
+    def worker(payload, *, timeout):
+        calls.append(payload)
+        return {"row": screen._special_row(screen._base_row(item, payload["entry"], None),
+                                            "needs_ocr", 1, "pdf"), "record": None}
+    monkeypatch.setattr(screen, "_run_document", worker)
+    rows = screen.screen_candidates(client, [item], data_root=tmp_path)
+    assert len(calls) == 1
+    assert rows[0]["label"] == "needs_ocr" and rows[0]["ocr"] is False
+
+
+def test_resume_recognises_earlier_step2_document_ids(tmp_path):
+    from trustswap.ingest.to_text import ingest_document
+    item = small_candidates()[0]
+    ingest_document(FIXTURES / "likely.html", collection="real", output_dir=tmp_path,
+                    doc_id="real_legacy", source_url=item.document_url)
+    before = (tmp_path / "real/docs.jsonl").read_bytes()
+    class NoDownload:
+        def get(self, *args):
+            pytest.fail("an earlier Step 2 ingest must not trigger a download")
+    client = NoDownload()
+    successful, report = screen.download_sample(client, [item], [item], data_root=tmp_path)
+    rows = screen.screen_candidates(client, successful, data_root=tmp_path, download_report=report)
+    assert rows[0]["doc_id"] == "real_legacy" and rows[0]["label"] == "likely_confirmation"
+    assert (tmp_path / "real/docs.jsonl").read_bytes() == before
+    assert not (tmp_path / "raw").exists()

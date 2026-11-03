@@ -11,7 +11,8 @@ from collections import Counter, deque
 import csv
 from datetime import date
 import hashlib
-from html import escape
+import math
+import multiprocessing
 import json
 import os
 from pathlib import Path
@@ -26,11 +27,14 @@ else:
     import edgar_scope
 
 from trustswap.common.records import DocumentRecord
-from trustswap.ingest.to_text import ingest_document, to_text
+from trustswap.ingest.to_text import ingest_document
 
 DEFAULT_SEED = 20261026
 ERA_QUOTAS = {"2001–2005": 75, "2006–2008": 75, "2009–2021": 75, "2022+": 75}
 LABELS = ("likely_confirmation", "maybe", "unlikely")
+SCREEN_LABELS = (*LABELS, "needs_ocr", "too_large")
+MAX_FILE_BYTES = 15_000_000
+SCREEN_TIMEOUT_SECONDS = 60
 TERMS = {
     "has_notional": r"\b(?:notional|calculation) amount\b",
     "has_termination": r"\btermination date\b",
@@ -103,8 +107,8 @@ def stratified_sample(candidates, *, seed=DEFAULT_SEED, quotas=None, as_of=None)
 
 
 def score_document(text: str, page_count: int) -> dict:
-    if page_count < 1:
-        raise ValueError("document must have a positive page count")
+    if page_count < 0:
+        raise ValueError("document page count must be nonnegative")
     normalized = " ".join(text.split())
     flags = {name: bool(re.search(pattern, normalized, re.I)) for name, pattern in TERMS.items()}
     matches = sum(flags.values())
@@ -114,62 +118,170 @@ def score_document(text: str, page_count: int) -> dict:
 
 
 def count_pages(path: str | Path, text: str) -> tuple[int, str]:
-    """Native PDF pages; conservative, reproducible print layout for HTML/TXT.
-
-    Non-PDF source documents have no intrinsic page count. Estimate from the
-    ingested text, not untrusted HTML/CSS/images that could fetch remote URLs.
-    """
-    path = Path(path)
-    if path.suffix.lower() == ".pdf":
+    """No HTML layout/rendering: use native PDF pages or character estimates."""
+    if Path(path).suffix.lower() == ".pdf":
         import pymupdf
         with pymupdf.open(path) as document:
             return document.page_count, "pdf"
-    from weasyprint import HTML
-
-    def no_resources(url, *args, **kwargs):
-        raise ValueError("screen page estimation forbids external resources")
-
-    html = ('<!doctype html><meta charset="utf-8"><style>'
-            '@page { size: A4; margin: 16mm; } '
-            'body { font-family: "DejaVu Serif", serif; font-size: 10pt; line-height: 1.3; '
-            'font-variant-ligatures: none; } '
-            'pre { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }'
-            '</style><pre>' + escape(text) + '</pre>')
-    return len(HTML(string=html, url_fetcher=no_resources).render().pages), "estimated_text_layout"
+    return math.ceil(len(text) / 3000), "estimated_chars"
 
 
-def _ingest_or_reuse(candidate, raw_path, root, existing_records, *, source_url=None):
-    source_url = source_url or candidate.document_url
-    doc_id = "real_" + hashlib.sha256(candidate.document_url.encode()).hexdigest()[:24]
-    text_path = root / "real/text" / f"{doc_id}.txt"
-    sidecar_path = text_path.with_suffix(".offsets.json")
-    records = [record for record in existing_records if record.doc_id == doc_id]
-    if records:
-        if len(records) != 1:
-            raise ValueError("duplicate ingested document ID")
-        record = records[0]
-        if record.collection != "real" or record.source_url != source_url or record.split is not None:
+def _doc_id(candidate):
+    return "real_" + hashlib.sha256(candidate.document_url.encode()).hexdigest()[:24]
+
+
+def _records(root):
+    path = root / "real/docs.jsonl"
+    return [DocumentRecord.model_validate_json(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+
+def _matching_records(candidate, records):
+    return [record for record in records if record.doc_id == _doc_id(candidate)
+            or record.source_url == candidate.document_url]
+
+
+def _resume_entry(candidate, records, manifest, raw_dir):
+    """An ingested document must never trigger a new HTTP request, even if raw is missing."""
+    record = next(iter(_matching_records(candidate, records)), None)
+    if record is None:
+        entry = manifest.get(candidate.document_url)
+        if entry and Path(entry["path"]).is_file() and Path(entry["path"]).stat().st_size > MAX_FILE_BYTES:
+            return entry  # Do not read a huge cached file merely to classify it too_large.
+        return None
+    if candidate.document_url in manifest:
+        return manifest[candidate.document_url]
+    source = "full_submission" if record.source_url == edgar_scope.full_submission_url(candidate) else "exhibit"
+    return {"document_url": candidate.document_url, "path": str(edgar_scope._raw_path(candidate, raw_dir, source)),
+            "sha256": record.sha256, "source": source, "source_url": record.source_url}
+
+
+def _cached_rows(root):
+    path = root / "real/screen.csv"
+    if not path.exists():
+        return {}
+    result = {}
+    with path.open(encoding="utf-8", newline="") as handle:
+        for original in csv.DictReader(handle):
+            row = {key: original.get(key, "") for key in SCREEN_COLUMNS}
+            for key in ("page_count", "score"):
+                row[key] = int(row[key]) if row[key] else ""
+            for key in ("ocr", *TERMS, "under_40_pages"):
+                row[key] = row[key].lower() == "true" if row[key] else ""
+            result[row["document_url"]] = row
+    return result
+
+
+def _base_row(candidate, entry, as_of):
+    return {**candidate.row(), "doc_id": _doc_id(candidate), "era": era_for(candidate.filing_date, as_of=as_of),
+            "raw_path": entry["path"], "sha256": entry["sha256"], "text_path": "",
+            "download_source": entry.get("source", "exhibit"),
+            "resolved_source_url": entry.get("source_url", candidate.document_url),
+            "selected_filename": entry.get("selected_filename", candidate.exhibit_file_name), "ocr": False}
+
+
+def _special_row(base, label, pages="", basis="not_screened"):
+    return {**base, "page_count": pages, "page_count_basis": basis, **{key: "" for key in TERMS},
+            "under_40_pages": "", "score": "", "label": label}
+
+
+def _screen_one(payload):
+    """Worker-side parsing and scoring; new files are confined to staging."""
+    candidate, entry = payload["candidate"], payload["entry"]
+    root, staging = Path(payload["root"]), Path(payload["staging"])
+    raw_path = Path(entry["path"])
+    base = _base_row(candidate, entry, payload["as_of"])
+    if raw_path.exists() and raw_path.stat().st_size > MAX_FILE_BYTES:
+        return {"row": _special_row(base, "too_large"), "record": None}
+    record = payload["record"]
+    if record is not None:
+        record = DocumentRecord.model_validate(record)
+        base["doc_id"] = record.doc_id
+        if record.collection != "real" or record.split is not None or record.source_url != base["resolved_source_url"]:
             raise ValueError("existing document is not an unassigned candidate; refusing split access")
-        text, meta = to_text(raw_path)
-        if (record.sha256 != meta["sha256"] or not text_path.is_file() or not sidecar_path.is_file()
-                or text_path.read_text(encoding="utf-8") != text
-                or Path(record.text_path).resolve() != text_path.resolve()):
-            raise ValueError("existing ingested artifacts differ; refusing overwrite")
-        offsets = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        if offsets != {"source_text": meta["source_text"], "offset_map": [list(pair) for pair in meta["offset_map"]]}:
-            raise ValueError("existing offset map differs; refusing overwrite")
-        return text, {**meta, **record.model_dump()}
-    text, meta = ingest_document(raw_path, collection="real", source_url=source_url,
-                                 doc_id=doc_id, output_dir=root)
-    existing_records.append(DocumentRecord.model_validate({key: value for key, value in meta.items()
-                                                         if key in DocumentRecord.model_fields}))
-    return text, meta
+        text_path = root / "real/text" / f"{record.doc_id}.txt"
+        if Path(record.text_path).resolve() != text_path.resolve() or not text_path.with_suffix(".offsets.json").is_file():
+            raise ValueError("existing ingest artifacts are missing or have unexpected paths")
+        text = text_path.read_text(encoding="utf-8")  # No source extraction or OCR on resume.
+        meta = record.model_dump()
+        needs_ocr = record.ocr or (raw_path.suffix.lower() == ".pdf" and not text.strip())
+        new_record = None
+    else:
+        text, meta = ingest_document(raw_path, collection="real", source_url=base["resolved_source_url"],
+                                     doc_id=base["doc_id"], output_dir=staging, ocr_enabled=False)
+        if meta["sha256"] != entry["sha256"]:
+            raise ValueError("source bytes changed since download")
+        needs_ocr = meta["needs_ocr"]
+        new_record = {key: value for key, value in meta.items() if key in DocumentRecord.model_fields}
+    pages, basis = count_pages(raw_path, text)
+    if needs_ocr:
+        return {"row": _special_row(base, "needs_ocr", pages, basis), "record": None}
+    row = {**base, "text_path": str(root / "real/text" / f"{base['doc_id']}.txt"),
+           "page_count": pages, "page_count_basis": basis, **score_document(text, pages)}
+    return {"row": row, "record": new_record}
+
+
+def _screen_worker(payload, connection):
+    try:
+        connection.send(_screen_one(payload))
+    except Exception as error:
+        connection.send({"error": f"{type(error).__name__}: {error}"})
+    finally:
+        connection.close()
+
+
+def _run_document(payload, *, timeout=SCREEN_TIMEOUT_SECONDS, worker=None):
+    """Hard process deadline also bounds native parsers; no abandoned worker threads."""
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=worker or _screen_worker, args=(payload, sender), daemon=True)
+    try:
+        process.start()
+        sender.close()
+        if not receiver.poll(timeout):
+            raise TimeoutError(f"ingest and screening exceeded {timeout} seconds")
+        result = receiver.recv()
+        if "error" in result:
+            raise RuntimeError(result["error"])
+        return result
+    finally:
+        sender.close()
+        receiver.close()
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join(1)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            process.close()
+
+
+def _commit_ingest(result, staging, root, records):
+    if result["record"] is None:
+        return
+    record = DocumentRecord.model_validate(result["record"])
+    source = staging / "real/text" / f"{record.doc_id}.txt"
+    target = root / "real/text" / source.name
+    destinations = (target, target.with_suffix(".offsets.json"))
+    if any(path.exists() for path in destinations):
+        raise FileExistsError("existing ingest files will not be overwritten")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+    source.with_suffix(".offsets.json").rename(destinations[1])
+    record = record.model_copy(update={"text_path": str(target)})
+    with (root / "real/docs.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(record.model_dump_json() + "\n")
+    records.append(record)
 
 
 def download_sample(client, selected, pool, *, seed=DEFAULT_SEED, data_root="data", raw_dir=None, as_of=None):
     """Try each unique URL once, replacing terminal failures within its era."""
     root = Path(data_root)
     raw_dir = Path(raw_dir) if raw_dir is not None else root / "raw/edgar"
+    records = _records(root)
+    manifest_path = raw_dir / "manifest.jsonl"
+    manifest = {row["document_url"]: row for row in (json.loads(line) for line in
+                manifest_path.read_text(encoding="utf-8").splitlines())} if manifest_path.exists() else {}
     selected_urls = {item.document_url for item in selected}
     reserves = {era: {} for era in ERA_QUOTAS}
     for item in pool:
@@ -188,8 +300,9 @@ def download_sample(client, selected, pool, *, seed=DEFAULT_SEED, data_root="dat
         if item.document_url in attempted:
             continue
         attempted.add(item.document_url)
-        result = edgar_scope.download_candidates(client, [item], 1, raw_dir,
-                                                failure_path=root / "real/download_failures.csv")
+        resumed = _resume_entry(item, records, manifest, raw_dir)
+        result = edgar_scope.DownloadReport(successes={item.document_url: resumed}) if resumed else edgar_scope.download_candidates(
+            client, [item], 1, raw_dir, failure_path=root / "real/download_failures.csv")
         report.merge(result)
         if item.document_url in result.successes:
             successes.append(item)
@@ -200,30 +313,74 @@ def download_sample(client, selected, pool, *, seed=DEFAULT_SEED, data_root="dat
     return successes, report
 
 
-def screen_candidates(client, candidates, *, data_root="data", raw_dir=None, as_of=None, download_report=None):
+def screen_candidates(client, candidates, *, data_root="data", raw_dir=None, as_of=None, download_report=None,
+                      timeout_seconds=SCREEN_TIMEOUT_SECONDS):
     root = Path(data_root)
     raw_dir = Path(raw_dir) if raw_dir is not None else root / "raw/edgar"
-    # Shared Step 3A client supplies the User-Agent, rate limit and SHA-256 manifest.
-    report = download_report if download_report is not None else edgar_scope.download_candidates(
-        client, candidates, len(candidates), raw_dir, failure_path=root / "real/download_failures.csv")
-    records_path = root / "real/docs.jsonl"
-    records = [DocumentRecord.model_validate_json(line) for line in
-               records_path.read_text(encoding="utf-8").splitlines()] if records_path.exists() else []
+    records = _records(root)
+    manifest_path = raw_dir / "manifest.jsonl"
+    manifest = {row["document_url"]: row for row in (json.loads(line) for line in
+                manifest_path.read_text(encoding="utf-8").splitlines())} if manifest_path.exists() else {}
+    if download_report is None:
+        report = edgar_scope.DownloadReport()
+        for candidate in candidates:
+            resumed = _resume_entry(candidate, records, manifest, raw_dir)
+            report.merge(edgar_scope.DownloadReport(successes={candidate.document_url: resumed}) if resumed else
+                         edgar_scope.download_candidates(client, [candidate], 1, raw_dir,
+                                                         failure_path=root / "real/download_failures.csv"))
+    else:
+        report = download_report
+    checkpoint = _cached_rows(root)
     rows = []
-    for candidate in candidates:
-        if candidate.document_url not in report.successes:
-            continue
-        entry = report.successes[candidate.document_url]
-        raw_path = Path(entry["path"])
-        source_url = entry.get("source_url", candidate.document_url)
-        text, meta = _ingest_or_reuse(candidate, raw_path, root, records, source_url=source_url)
-        pages, basis = count_pages(raw_path, text)
-        rows.append({**candidate.row(), "doc_id": meta["doc_id"], "era": era_for(candidate.filing_date, as_of=as_of),
-                     "raw_path": str(raw_path), "sha256": meta["sha256"], "text_path": meta["text_path"],
-                     "download_source": entry.get("source", "exhibit"), "resolved_source_url": source_url,
-                     "selected_filename": entry.get("selected_filename", candidate.exhibit_file_name),
-                     "ocr": meta["ocr"], "page_count": pages, "page_count_basis": basis,
-                     **score_document(text, pages)})
+    (root / "real").mkdir(parents=True, exist_ok=True)
+    for index, candidate in enumerate(candidates, 1):
+        try:
+            if candidate.document_url not in report.successes:
+                continue
+            entry = report.successes[candidate.document_url]
+            matching = _matching_records(candidate, records)
+            if len(matching) > 1:
+                raise ValueError("duplicate ingested document ID")
+            record = matching[0] if matching else None
+            if record:
+                if record.split is not None:
+                    raise ValueError("existing document is assigned; refusing split access")
+                if record.source_url != entry.get("source_url", candidate.document_url) or record.sha256 != entry["sha256"]:
+                    raise ValueError("existing document provenance does not match the download")
+                text_path = root / "real/text" / f"{record.doc_id}.txt"
+                if (Path(record.text_path).resolve() != text_path.resolve() or not text_path.is_file()
+                        or not text_path.with_suffix(".offsets.json").is_file()):
+                    raise ValueError("existing ingest artifacts are missing or have unexpected paths")
+            cached = checkpoint.get(candidate.document_url)
+            raw_path = Path(entry["path"])
+            if raw_path.exists() and raw_path.stat().st_size > MAX_FILE_BYTES:
+                base = _base_row(candidate, entry, as_of)
+                if record:
+                    base["doc_id"] = record.doc_id
+                row = _special_row(base, "too_large")
+            elif (cached and cached["sha256"] == entry["sha256"] and cached["ocr"] is False
+                  and (not record or cached["doc_id"] == record.doc_id)
+                  and (not record or not record.ocr or cached["label"] == "needs_ocr")
+                  and cached["page_count_basis"] in {"estimated_chars", "pdf", "not_screened"}
+                  and (record or cached["label"] in {"needs_ocr", "too_large"})):
+                row = cached
+            else:
+                with tempfile.TemporaryDirectory(prefix=".screen-", dir=root / "real") as directory:
+                    staging = Path(directory)
+                    payload = {"candidate": candidate, "entry": entry, "root": str(root), "staging": str(staging),
+                               "record": record.model_dump() if record else None, "as_of": as_of}
+                    result = _run_document(payload, timeout=timeout_seconds)
+                    _commit_ingest(result, staging, root, records)
+                    row = result["row"]
+            rows.append(row)
+            checkpoint[candidate.document_url] = row
+            write_csv(root / "real/screen.csv", list(checkpoint.values()), SCREEN_COLUMNS)
+        except Exception as error:
+            edgar_scope._log_failure(root / "real/screen_failures.csv", candidate.document_url, error,
+                                    status="timeout" if isinstance(error, TimeoutError) else "error")
+        finally:
+            if index % 10 == 0:
+                print(f"Screening progress: {index}/{len(candidates)} documents; {len(rows)} results", flush=True)
     return rows
 
 
@@ -264,7 +421,7 @@ def print_summary(rows):
     print(f"Screened documents: {len(rows)}")
     labels, eras = Counter(row["label"] for row in rows), Counter(row["era"] for row in rows)
     print("Count per label:")
-    for label in LABELS:
+    for label in SCREEN_LABELS:
         print(f"  {label}: {labels[label]}")
     print("Count per era:")
     for era in ERA_QUOTAS:
@@ -282,9 +439,6 @@ def main(argv=None):
     report = None
     try:
         client = edgar_scope.SECClient()
-        # Protect any existing human work, including an as-yet-unfilled review CSV.
-        if manual_path.exists():
-            raise FileExistsError(f"manual review file already exists; preserve it before rerunning: {manual_path}")
         candidates = read_candidates(args.candidates or args.data_root / "real/candidates.csv")
         selected = stratified_sample(candidates, seed=args.seed)
         successful, report = download_sample(client, selected, candidates, seed=args.seed,
@@ -298,8 +452,11 @@ def main(argv=None):
             actual = Counter(row["era"] for row in rows)
             shortage = "; ".join(f"{era}: {actual[era]}/{target[era]}" for era in ERA_QUOTAS if actual[era] < target[era])
             raise ValueError(f"same-era replacement pool exhausted ({shortage}); successful screen.csv retained")
-        manual = manual_sample(rows, seed=args.seed)
-        write_csv(manual_path, manual, (*SCREEN_COLUMNS, "is_confirmation"))
+        if manual_path.exists():
+            print(f"Keeping existing manual review file: {manual_path}")
+        else:
+            manual = manual_sample(rows, seed=args.seed)
+            write_csv(manual_path, manual, (*SCREEN_COLUMNS, "is_confirmation"))
     except (ValueError, FileExistsError) as error:
         parser.error(str(error))
     finally:
