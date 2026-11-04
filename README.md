@@ -257,12 +257,13 @@ documents, including cached results, skips and failures.
 ### Human-reviewed model proposals
 
 Use an already-installed model served by Ollama, or explicitly select the
-frontier API (requires `OPENAI_API_KEY` in your environment):
+OpenAI-compatible API (requires `OPENAI_API_KEY`; the SDK also reads
+`OPENAI_BASE_URL` for your gateway). Install `requirements-dev.txt` first:
 
 ```bash
 python scripts/annotate_auto.py --annotator A1 --model local:qwen2.5:7b --dry-run
 python scripts/annotate_auto.py --annotator A1 --model local:qwen2.5:7b
-python scripts/annotate_auto.py --annotator A1 --model openai:gpt-4.1
+python scripts/annotate_auto.py --annotator A1 --model openai:gemini-2.0-flash --dry-run
 ```
 
 For each field, review the raw proposal, normalised value, exact spans and three

@@ -165,7 +165,6 @@ def test_confirmed_decision_recovers_after_snapshot_failure(setup, monkeypatch):
 
 @pytest.mark.parametrize("spec,response", [
     ("local:fixture", {"response": "20-Mar-2012"}),
-    ("openai:fixture", {"output": [{"content": [{"type": "output_text", "text": "20-Mar-2012"}]}]}),
 ])
 def test_http_backends_mocked_only(spec, response, monkeypatch):
     requests = []
@@ -190,3 +189,54 @@ def test_source_change_and_real_test_refused(setup):
     write_csv(setup[0], list(row), [row])
     with pytest.raises(ValueError, match="non-test"):
         run(setup, Model())
+
+
+def test_sdk_environment_chat_dry_run_and_cache(setup, monkeypatch):
+    import openai
+    from types import SimpleNamespace
+    monkeypatch.setenv("OPENAI_API_KEY", "fixture-sdk-secret")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.example.invalid/v1")
+    real_factory = openai.OpenAI
+    clients, calls = [], []
+    def factory():
+        client = real_factory()
+        clients.append(client)
+        monkeypatch.setattr(client, "with_options", lambda **options: client)
+        assert client.api_key == "fixture-sdk-secret"
+        assert str(client.base_url) == "https://gateway.example.invalid/v1/"
+        def create(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(
+                finish_reason="stop", message=SimpleNamespace(content="20-Mar-2012" if
+                    "`trade_date`" in kwargs["messages"][0]["content"] else "ABSENT"))])
+        monkeypatch.setattr(client.chat.completions, "create", create)
+        return client
+    monkeypatch.setattr(openai, "OpenAI", factory)
+    model = auto.HTTPModel("openai:gemini-2.0-flash")
+    _, output = run(setup, model, dry_run=True)
+    assert "2012-03-20" in output
+    assert len(calls) == len(FIELDS)
+    assert all(call["model"] == "gemini-2.0-flash" for call in calls)
+    assert all(call["messages"][0]["content"].endswith(setup[1].read_text()) for call in calls)
+    assert not setup[2].exists()
+    monkeypatch.delenv("OPENAI_API_KEY")
+    run(setup, auto.HTTPModel("openai:gemini-2.0-flash"), dry_run=True)
+    assert len(calls) == len(FIELDS)  # no SDK client or model call on rerun
+    assert "fixture-sdk-secret" not in json.dumps(model.parameters)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://another.example.invalid/v1")
+    other = auto.HTTPModel("openai:gemini-2.0-flash")
+    assert model.parameters != other.parameters
+
+
+def test_sdk_rejects_truncated_output(monkeypatch):
+    import openai
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.with_options.return_value = client
+    client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+        finish_reason="length", message=SimpleNamespace(content="partial"))])
+    monkeypatch.setattr(openai, "OpenAI", lambda: client)
+    with pytest.raises(ValueError, match="token limit"):
+        auto.HTTPModel("openai:gemini-2.0-flash")("fictional")
