@@ -1,0 +1,28 @@
+SYNTHETIC FIXTURE FOR TOOL TESTING ONLY
+Trade Date: 20-Mar-2012
+Effective Date: 22-Mar-2012
+Termination Date: 22-Mar-2017
+Fixed Leg
+Payer: Example Bank A
+Receiver: Example Company B
+Notional Amount: USD 250,000,000
+Currency: USD
+Payment Frequency: semi-annual
+Day Count Fraction: 30/360
+Business Day Convention: Modified Following
+Business Centers: New York
+Fixed Rate: 4.25%
+Floating Leg
+Payer: Example Company B
+Receiver: Example Bank A
+Notional Amount: USD 250,000,000
+Currency: USD
+Payment Frequency: quarterly
+Reset Frequency: 3 months
+Day Count Fraction: Actual/360
+Business Day Convention: Modified Following
+Business Centers: New York
+Floating Rate Option: USD-LIBOR-BBA
+Spread: 25 bps
+Notice Address: 1 Example Street
+Example City

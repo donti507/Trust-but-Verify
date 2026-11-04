@@ -124,6 +124,44 @@ stops safely; rerunning skips completed answers and saved skips. Use
 The final summary shows yes/no counts per screen label and era, plus skip and
 unanswered totals. These human triage decisions do not create trade gold labels.
 
+## How to run: pilot annotation (Step 4)
+
+```bash
+python scripts/select_pilot.py
+python scripts/annotate.py --annotator A1
+# A second human works independently, without viewing A1:
+python scripts/annotate.py --annotator A2
+python scripts/agreement.py
+```
+
+Read [the annotation guide](docs/annotation_guide.md) first. Pilot selection targets
+6 documents from each pre-2022 era and up to 2 from 2022+, preferring reviewed
+fixed/float confirmations within each era. Unfilled slots are redistributed
+without exceeding the recent-era cap; heuristic top-ups are flagged in
+`data/real/pilot20.csv` for manual confirmation. Existing pilot files are not
+overwritten; use `--output` for a deliberately different pilot.
+
+The annotation CLI shows keyword contexts, asks for exact saved-text quotes,
+lets you choose among repeated occurrences, and confirms normalised values before
+saving. `show` displays the whole text; `absent`, `ref`, `amb` and `back` control
+status/navigation. Type `\n` for saved line breaks, or `text:<literal>` to quote
+reserved command words. A bare rate asks for a document-supported unit; it never
+uses a verifier or market default. `ref` leaves the span null and allows an
+unresolved null value. Enter the document-supported flags at the end.
+
+Each field is saved atomically to `data/real/annotations/A1.jsonl` (or A2).
+EOF/Ctrl+C stops safely; rerun the same command to resume. Changed source text
+or concurrent annotation edits are rejected. Unanswered fields remain unannotated,
+not absent. A1 never reads A2's file. No real gold is published automatically.
+
+Agreement writes per-field normalised value agreement and status Cohen's kappa
+to `data/real/agreement.csv`, plus every value/status/span/flag or missing-answer
+disagreement to `data/real/adjudication.csv` for the domain lead. Unpaired fields
+are excluded from paired metrics. Kappa is blank when undefined (no pairs or
+constant identical status marginals). Different source-text versions are reported
+and excluded from comparisons. Existing reports are protected; preserve lead
+edits before requesting regeneration with `--overwrite`. All tools are offline.
+
 ## Layout
 ```
 configs/   experiment configs (YAML)

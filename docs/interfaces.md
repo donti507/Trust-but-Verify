@@ -258,3 +258,59 @@ resolve against the CSV directory, current working directory or standard
 repository root; ambiguous paths are rejected. Missing/unreadable text is not
 labelled. Only the operator supplies answers: the helper creates no gold trade
 labels or adjudication metadata. Rows marked `real_test` are excluded.
+
+
+## Pilot annotation (Step 4)
+
+`select_pilot.py` joins screen and manual-review rows by document URL. It writes
+20 unique fixed/float candidates with era targets 6/6/6/2 (up to two from 2022+).
+Within each era, manually confirmed `irs_fixed_float` rows take priority; remaining
+slots use `likely_confirmation`. Human negatives and known other products are
+excluded. Scarce strata redistribute slots without raising the recent-era cap.
+The CSV adds `selection_reason`, `not_manually_checked`, and
+`manual_check_required`; top-ups never receive invented confirmation answers.
+No pilot row marked `real_test` is selected or annotated.
+
+`trustswap.common.annotations.AnnotationRecord` defines the human working format.
+Each annotator has one JSON object per document in
+`data/real/annotations/<annotator>.jsonl`. Partial snapshots are atomically
+replaced after each confirmed answer, not appended as duplicate document rows.
+
+```json
+{"doc_id":"real_example","collection":"real","annotator":"A1","text_path":"data/real/text/real_example.txt","text_sha256":"<64 hexadecimal characters>","split":null,"fields":{},"flags":[],"flags_reviewed":false,"complete":false}
+```
+
+`fields` contains only answered Step 1 fixed/float paths, such as `trade_date`,
+`fixed_leg.notional_amount` or `floating_leg.spread`. Each answer has exactly
+`value`, `span`, `status` and is validated against that schema field's type.
+Decimal values serialise as JSON strings and dates as ISO strings. Explicit
+answers require exact saved-text spans and values; by-reference spans are null;
+ambiguous answers have null value/span; absent answers have null value/span.
+Unanswered paths are omitted, never filled with absent defaults. `flags` holds
+human-specified `amortising`, `cap`, and/or `floor` features alongside the trade
+terms. Empty flags require an explicit human none decision (`flags_reviewed`).
+
+`complete` is derived from all 25 term answers plus the flags decision. Only a
+complete snapshot can be converted to the Step 1 model with `as_trade()`. Source
+hashes are of the saved text bytes (distinct from document-record raw-byte hashes).
+The annotator confirms normalisation, repeated-span choices and any document
+header unit; the tool never supplies labels from a verifier. `back` edits the
+previous annotation step and persists the correction. Each annotator reads only
+their own file; real gold/adjudication remains a separate human process.
+
+`agreement.py` compares paired fields using canonical values (Decimal equality,
+ISO dates, canonical codes and sorted business centers). It reports value exact
+match rates, span exact matches, full field matches and Cohen's kappa on the four
+statuses. Null-valued answered statuses are compared as null values, not as
+unanswered fields. Unpaired fields are excluded from paired denominators and
+listed for adjudication; kappa is null when there are no pairs or expected
+agreement is 1. Different source hashes produce a `__text__` disagreement and
+are not compared across versions. Flag disagreements are listed separately.
+
+`adjudication.csv` contains doc_id, field, reason, each annotator's status/value/
+span and a source-text path. `agreement.csv` records the per-field metrics and
+coverage. Missing answers use the report-only status `unannotated`; flags use
+`reviewed`. These are not additional schema statuses. Reports never rewrite
+annotations, select a winner or publish adjudicated real gold. Existing reports
+are not overwritten unless the operator passes `--overwrite` after preserving
+any domain-lead edits.
