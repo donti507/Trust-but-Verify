@@ -279,3 +279,13 @@ def test_annotation_trims_value_before_span_search(entered):
 def test_annotation_trims_reference_value():
     answer = annotate.ask_field("effective_date", "See incorporated schedule", inputs("ref", " 01-Apr-22 ", "y"), io.StringIO())
     assert answer == {"value": "2022-04-01", "span": None, "status": "by_reference"}
+
+
+@pytest.mark.parametrize("wording", ["None", "N/A", "Not Applicable"])
+def test_annotation_explicit_no_spread_keeps_source_evidence(wording):
+    text = "Spread: " + wording
+    answer = annotate.ask_field("floating_leg.spread", text, inputs(wording, "y"), io.StringIO())
+    assert answer["value"] == "0" and answer["status"] == "explicit"
+    assert text[slice(*answer["span"])] == wording
+    with pytest.raises(ValueError):
+        normalise_field("fixed_leg.fixed_rate", wording)

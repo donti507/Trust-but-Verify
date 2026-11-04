@@ -24,9 +24,15 @@ def normalise_date(value: str | date) -> str:
     raise ValueError(f"Unsupported or ambiguous date: {value!r}")
 
 
-def normalise_rate(value: str | Decimal | int | float, *, unit: str | None = None) -> Decimal:
-    """Normalise a quoted rate; bare numbers require an explicit unit."""
+def normalise_rate(value: str | Decimal | int | float, *, unit: str | None = None, is_spread: bool = False) -> Decimal:
+    """Normalise a quoted rate; explicit no-spread wording requires is_spread=True.
+
+    Missing values and fixed-rate N/A statements never imply a zero rate.
+    Bare numeric rates still require an explicit unit.
+    """
     text = str(value).strip().lower()
+    if is_spread and isinstance(value, str) and " ".join(text.split()) in {"none", "n/a", "not applicable"}:
+        return Decimal(0)
     negative = text.startswith("(") and text.endswith(")")
     if negative:
         text = text[1:-1].strip()

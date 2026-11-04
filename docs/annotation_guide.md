@@ -248,7 +248,7 @@ all disagreements before any real gold record is published.
 
 **Usually appears:** Spread or Margin row.
 
-**Examples and boundary rules:** minus 50 bps → Decimal -0.005. No stated margin is absent, not automatically zero.
+**Examples and boundary rules:** minus 50 bps → Decimal -0.005. No stated margin is absent, not automatically zero. Explicit spread wording None, N/A or Not Applicable normalises to zero; cite that wording with status explicit. These tokens do not imply a zero fixed rate.
 
 ## notice_address
 
