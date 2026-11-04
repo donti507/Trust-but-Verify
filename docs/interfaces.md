@@ -314,3 +314,46 @@ coverage. Missing answers use the report-only status `unannotated`; flags use
 annotations, select a winner or publish adjudicated real gold. Existing reports
 are not overwritten unless the operator passes `--overwrite` after preserving
 any domain-lead edits.
+
+
+## Pilot curation and exhibit replacement
+
+`pilot20.csv` includes `rejected_reason` (empty for active rows). `annotate.py`
+accepts `reject <reason>` at value, disambiguation, confirmation and flag prompts.
+It atomically updates that row, skips every remaining job for the document, and
+leaves prior A1/A2 snapshots unchanged. All annotators skip marked rows on resume.
+
+`select_pilot.py --top-up` retains non-rejected rows and their metadata, excludes
+current/archived IDs and URLs, and fills the cohort to 20 without exceeding two
+2022+ documents. Retained rows stay in position. Rejected rows are archived to
+`pilot_rejections.csv` before replacement. Candidate proposals may be generated
+without I/O by `select_pilot()`, but the CLI requires preview acceptance for every
+not-fully-reviewed addition: first 40 local text lines plus all keyword hits.
+A y explicitly confirms suitability as `irs_fixed_float`; a n never adds the
+row. No automatic positive is inferred from screening or filenames. Initial
+selection and top-up abort without changing the pilot if interrupted or if too
+few candidates are accepted. Existing reviewed negatives/other products remain
+excluded. The manual-check study CSV is not expanded or relabelled.
+
+`resolve_exhibit.py <doc_id>` reads a current pilot cover's local citation, then
+uses `SEC_USER_AGENT` and the shared four-per-second retrying client to retrieve
+its SEC directory/index. Only links within that accession on SEC HTTPS are
+eligible; viewer links are unwrapped and external/parent links are rejected.
+Description/name confirmation matches and explicitly cited exhibit numbers
+identify candidates. Multiple candidates require a human choice. The selected
+file uses the existing raw-file SHA-256 manifest and no-overwrite rules, followed
+by bounded Step 2 ingestion/screening with OCR disabled. Uningestible/oversized
+exhibits do not replace the cover. Local text is previewed and accepted before
+writing the new pilot row; decline preserves the cover and caches the artifact.
+
+Accepted exhibit rows add `replaces_doc_id` and `cover_document_url`, receive a
+new source-derived doc_id, and clear `rejected_reason`. The cover's metadata and
+reason are archived; source files and annotation snapshots are never rewritten
+or deleted. Concurrent pilot edits abort replacement. The resolver is the only
+new command that makes network requests, and only when explicitly run by the
+operator; tests use saved fictional index/cover fixtures and mocked HTTP.
+
+`agreement.py --pilot PATH` limits comparison to current non-rejected pilot IDs;
+the default is `data/real/pilot20.csv` when it exists. Retired-cover snapshots are
+retained but excluded from active agreement metrics and adjudication rows. With
+no pilot file present, explicitly supplied annotation files are compared in full.

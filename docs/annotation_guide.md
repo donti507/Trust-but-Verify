@@ -34,7 +34,10 @@ to determine the term's scope and whether it governs this transaction.
 Run A1 and A2 independently, without viewing the other's annotations or verifier
 output. Type an exact saved-text quote; if repeated, choose its actual occurrence
 from the displayed offsets/context. Inspect the normalised proposal and confirm
-with y before it is saved. Use absent, ref, amb, show, or back. Reserved literal
+with y before it is saved. Use absent, ref, amb, show, or back. At any prompt, `reject <reason>` marks the
+current document unsuitable in the pilot and skips it. Existing answers are
+retained for audit but rejected documents are excluded from the active cohort;
+run `select_pilot.py --top-up` or resolve its referenced exhibit before resuming. Reserved literal
 values can be entered as `text:<literal>`. Use `\n` to enter saved line breaks.
 Unsupported normalisation is a tooling issue: stop/report it rather than mark a
 clear term absent or ambiguous just to bypass the parser.

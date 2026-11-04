@@ -10,10 +10,10 @@ import sys
 from trustswap.common.annotations import AnnotationRecord, FIELDS, FLAGS, normalise_field, validated_field
 
 if __package__:
-    from .pilot_utils import read_csv, read_annotations, save_annotations
+    from .pilot_utils import read_csv_snapshot, read_annotations, save_annotations, write_csv
     from .review_helper import local_text_path, _safe
 else:
-    from pilot_utils import read_csv, read_annotations, save_annotations
+    from pilot_utils import read_csv_snapshot, read_annotations, save_annotations, write_csv
     from review_helper import local_text_path, _safe
 
 HINTS = {
@@ -31,6 +31,10 @@ HINTS = {
 
 
 class Back(Exception):
+    pass
+
+
+class Reject(Exception):
     pass
 
 
@@ -61,7 +65,7 @@ def occurrences(text, quote):
 
 def ask_field(path, text, ask, output):
     while True:
-        entered = ask("Exact value / absent / ref / amb / show / back: ")
+        entered = ask("Exact value / absent / ref / amb / show / back / reject <reason>: ")
         command = entered.strip().lower()
         if command == "show":
             for number, line in enumerate(text.splitlines(), 1):
@@ -130,7 +134,7 @@ def annotate(pilot_path, *, annotator, output_dir="data/real/annotations", input
         raise ValueError("invalid annotator ID")
     input_fn = input if input_fn is None else input_fn
     output = sys.stdout if output is None else output
-    _, pilot = read_csv(pilot_path)
+    pilot_columns, pilot, pilot_digest = read_csv_snapshot(pilot_path)
     if len({row["doc_id"] for row in pilot}) != len(pilot):
         raise ValueError("duplicate pilot doc_id")
     if any(row.get("split") == "real_test" or row.get("collection", "real") != "real" for row in pilot):
@@ -142,15 +146,30 @@ def annotate(pilot_path, *, annotator, output_dir="data/real/annotations", input
     jobs = [(row, field) for row in pilot for field in (*FIELDS, "flags")]
     texts, index, force, exit_code = {}, 0, False, 0
     def ask(prompt):
-        print(prompt, end="", file=output, flush=True)
-        value = input_fn("")
-        if value.strip().lower() == "back":
-            raise Back
-        return value
+        while True:
+            print(prompt, end="", file=output, flush=True)
+            value = input_fn("")
+            command = value.strip()
+            if command.lower() == "back":
+                raise Back
+            if command.lower() == "reject":
+                print("Provide a reason: reject <reason>.", file=output)
+                continue
+            if command.lower().startswith("reject "):
+                reason = command[7:].strip()
+                if not reason:
+                    print("A rejection reason is required.", file=output)
+                    continue
+                raise Reject(reason)
+            return value
     try:
         while index < len(jobs):
             row, field = jobs[index]
             doc_id = row["doc_id"]
+            if row.get("rejected_reason", "").strip():
+                index += 1
+                force = False
+                continue
             previous = records.get(doc_id)
             if not force and previous and (previous.flags_reviewed if field == "flags" else field in previous.fields):
                 index += 1
@@ -185,6 +204,18 @@ def annotate(pilot_path, *, annotator, output_dir="data/real/annotations", input
                 records = proposed
                 print("Saved field.", file=output)
                 index += 1
+                force = False
+            except Reject as rejection:
+                reason = str(rejection)
+                proposed = [{**item, "rejected_reason": reason} if item["doc_id"] == doc_id else dict(item)
+                            for item in pilot]
+                pilot_columns = list(dict.fromkeys([*pilot_columns, "rejected_reason"]))
+                serialised = [{key: item.get(key, "") for key in pilot_columns} for item in proposed]
+                pilot_digest = write_csv(pilot_path, pilot_columns, serialised, expected=pilot_digest, check=True)
+                row["rejected_reason"] = reason
+                print(f"Rejected {_safe(doc_id)}: {_safe(reason)}. Run select_pilot.py --top-up for a replacement.", file=output)
+                while index < len(jobs) and jobs[index][0]["doc_id"] == doc_id:
+                    index += 1
                 force = False
             except Back:
                 if index == 0:

@@ -190,7 +190,7 @@ def test_agreement_cli_writes_lead_disagreements(tmp_path):
     left.write_text(a.model_dump_json() + "\n")
     right.write_text(b.model_dump_json() + "\n")
     output, metrics = tmp_path / "adjudication.csv", tmp_path / "agreement.csv"
-    assert agreement.main(["--a1", str(left), "--a2", str(right), "--output", str(output), "--metrics", str(metrics)]) == 0
+    assert agreement.main(["--a1", str(left), "--a2", str(right), "--output", str(output), "--metrics", str(metrics), "--pilot", str(tmp_path / "no_pilot.csv")]) == 0
     _, rows = read_csv(output)
     assert rows[0]["field"] == "trade_date" and "status" in rows[0]["reason"]
     assert len(read_csv(metrics)[1]) == len(FIELDS)
@@ -242,7 +242,8 @@ def test_complete_explicit_fixture_annotation_and_spans(pilot):
             assert text[slice(*answer["span"])] == quotes[field]
 
 
-def test_selector_cli_csv_flags_and_no_overwrite(tmp_path):
+def test_selector_cli_csv_flags_and_no_overwrite(tmp_path, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _: "y")
     rows = [{"doc_id": f"fixture_{era}_{i}", "document_url": f"fixture://{era}/{i}", "era": era,
              "text_path": str(FIXTURE), "label": "likely_confirmation"} for era in select_pilot.ERAS for i in range(10)]
     screen, manual, output = tmp_path / "screen.csv", tmp_path / "manual.csv", tmp_path / "pilot.csv"
@@ -250,7 +251,7 @@ def test_selector_cli_csv_flags_and_no_overwrite(tmp_path):
     write_csv(manual, ("document_url", "is_confirmation", "product_type"), [])
     assert select_pilot.main(["--screen", str(screen), "--manual", str(manual), "--output", str(output)]) == 0
     selected = read_csv(output)[1]
-    assert len(selected) == 20 and all(row["not_manually_checked"] == "true" for row in selected)
+    assert len(selected) == 20 and all(row["not_manually_checked"] == "false" for row in selected)
     before = output.read_bytes()
     with pytest.raises(SystemExit):
         select_pilot.main(["--screen", str(screen), "--manual", str(manual), "--output", str(output)])

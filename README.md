@@ -137,14 +137,17 @@ python scripts/agreement.py
 Read [the annotation guide](docs/annotation_guide.md) first. Pilot selection targets
 6 documents from each pre-2022 era and up to 2 from 2022+, preferring reviewed
 fixed/float confirmations within each era. Unfilled slots are redistributed
-without exceeding the recent-era cap; heuristic top-ups are flagged in
-`data/real/pilot20.csv` for manual confirmation. Existing pilot files are not
-overwritten; use `--output` for a deliberately different pilot.
+without exceeding the recent-era cap. Before adding an unchecked candidate,
+the selector displays its first 40 saved-text lines and every keyword match,
+then requires y/n acceptance as a suitable fixed/float confirmation. Accepted
+rows record that human confirmation. Existing pilot files are protected; use
+`--top-up` to replace rejected rows or `--output` for a different pilot.
 
 The annotation CLI shows keyword contexts, asks for exact saved-text quotes,
 lets you choose among repeated occurrences, and confirms normalised values before
 saving. `show` displays the whole text; `absent`, `ref`, `amb` and `back` control
-status/navigation. Type `\n` for saved line breaks, or `text:<literal>` to quote
+status/navigation. At any prompt, `reject <reason>` marks the current pilot
+document unsuitable and skips its remaining fields. Type `\n` for saved line breaks, or `text:<literal>` to quote
 reserved command words. A bare rate asks for a document-supported unit; it never
 uses a verifier or market default. `ref` leaves the span null and allows an
 unresolved null value. Enter the document-supported flags at the end.
@@ -161,6 +164,41 @@ are excluded from paired metrics. Kappa is blank when undefined (no pairs or
 constant identical status marginals). Different source-text versions are reported
 and excluded from comparisons. Existing reports are protected; preserve lead
 edits before requesting regeneration with `--overwrite`. All tools are offline.
+
+## Replacing pilot covers and rejected documents
+
+During annotation, enter `reject cover 8-K only` (or another specific reason).
+This saves `rejected_reason` in `pilot20.csv`, skips the document for both
+annotators, and retains existing partial annotations. Then choose one workflow:
+
+```bash
+# Fill rejected slots from other candidates, retaining all active pilot rows:
+python scripts/select_pilot.py --top-up
+
+# Or resolve a still-present cover to its actual referenced exhibit:
+# SEC_USER_AGENT must identify you and your contact email (see EDGAR setup).
+python scripts/resolve_exhibit.py <cover_doc_id>
+```
+
+Top-up excludes current and previously rejected IDs/URLs, keeps the recent-era
+cap, previews every unchecked replacement, and saves only a complete 20-document
+pilot. EOF/declined choices that exhaust the pool leave the prior pilot intact.
+Removed cover/rejection metadata is retained in `data/real/pilot_rejections.csv`.
+
+The exhibit resolver checks the local cover's confirmation/exhibit citation,
+reads the SEC accession directory (and filing document index if needed), and
+matches descriptions, filenames or the cited exhibit number. Multiple matches
+require a choice. It uses the shared paced SEC client and SHA-256 manifest,
+ingests via the bounded no-OCR screening pipeline, and requires a local-text
+preview acceptance before replacing the cover in the same pilot position.
+Decline leaves the pilot unchanged and retains cached downloads/text. The new
+row records `replaces_doc_id` and `cover_document_url`. If you already topped up
+the cover's slot, resolve only a cover still present in the current pilot.
+
+Agreement reports default to non-rejected IDs in the current `pilot20.csv` when
+present; retained retired-cover annotations do not enter its metrics. All tests
+mock SEC responses and use fictional local fixtures; no live requests are made
+while developing these tools.
 
 ## Layout
 ```
