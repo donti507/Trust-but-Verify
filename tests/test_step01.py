@@ -232,3 +232,20 @@ def test_floating_rate_reference_is_used(tmp_path, monkeypatch):
     assert normalise_floating_rate_option("test code") == "TEST-CODE"
     with pytest.raises(ValueError):
         normalise_floating_rate_option("USD-SOFR")
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("27-Mar-17", "2017-03-27"), ("01-Apr-22", "2022-04-01"),
+    ("15-Jun-98", "1998-06-15"), ("27-Mar-2017", "2017-03-27"),
+    ("01-Jan-00", "2000-01-01"), ("31-Dec-49", "2049-12-31"),
+    ("01-Jan-50", "1950-01-01"), ("15-Jun-68", "1968-06-15"),
+    ("31-Dec-99", "1999-12-31"), (" 27-Mar-17 ", "2017-03-27"),
+])
+def test_named_month_short_year_pivot(value, expected):
+    assert normalise_date(value) == expected
+
+
+@pytest.mark.parametrize("value", ["03/04/17", "03-04-17", "29-Feb-50"])
+def test_numeric_dates_and_invalid_short_year_date_refused(value):
+    with pytest.raises(ValueError):
+        normalise_date(value)

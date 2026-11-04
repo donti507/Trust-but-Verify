@@ -29,6 +29,12 @@ conflicts remain ambiguous. Keyword search is navigation only: no keyword hit
 is not evidence of absence. Read enough surrounding text, including leg headings,
 to determine the term's scope and whether it governs this transaction.
 
+Typed value input is trimmed at its outer edges before exact-span lookup;
+internal spaces and saved line breaks are retained in the evidence quote.
+Named-month dates accept DD-Mon-YYYY and DD-Mon-YY. The latter uses a fixed
+pivot: 00–49 means 2000–2049 and 50–99 means 1950–1999. Numeric day/month
+formats such as 03/04/17 remain unsupported because they are ambiguous.
+
 ## Workflow and special features
 
 Run A1 and A2 independently, without viewing the other's annotations or verifier
