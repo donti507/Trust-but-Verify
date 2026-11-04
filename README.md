@@ -253,3 +253,25 @@ previous rows or saved ingested text without extracting original files again;
 already-ingested documents never trigger another download, even if raw files are
 missing. Existing manual-review answers are retained. Progress prints every 10
 documents, including cached results, skips and failures.
+
+### Human-reviewed model proposals
+
+Use an already-installed model served by Ollama, or explicitly select the
+frontier API (requires `OPENAI_API_KEY` in your environment):
+
+```bash
+python scripts/annotate_auto.py --annotator A1 --model local:qwen2.5:7b --dry-run
+python scripts/annotate_auto.py --annotator A1 --model local:qwen2.5:7b
+python scripts/annotate_auto.py --annotator A1 --model openai:gpt-4.1
+```
+
+For each field, review the raw proposal, normalised value, exact spans and three
+context lines. Use y to accept, n for manual correction, or s to skip. Repeated
+values require choosing an occurrence. Feature flags remain manual. Rerun to
+resume; add `--revisit-skipped` to review skips. Responses use the Step 0 cache;
+dry-run displays proposals and fills the cache without annotation/log writes.
+Human decisions go to the usual `A1.jsonl`, with a separate releasable
+`A1.proposals.jsonl` provenance log. See
+[the assisted annotation protocol](docs/annotation_provenance.md) for limitations
+and the paper disclosure: “Annotations were LLM-proposed and human-confirmed;
+the proposal log is released.”
