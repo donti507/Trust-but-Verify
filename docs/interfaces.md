@@ -357,3 +357,20 @@ operator; tests use saved fictional index/cover fixtures and mocked HTTP.
 the default is `data/real/pilot20.csv` when it exists. Retired-cover snapshots are
 retained but excluded from active agreement metrics and adjudication rows. With
 no pilot file present, explicitly supplied annotation files are compared in full.
+
+### Assisted annotation provenance
+
+The optional `annotate_auto.py` writes the same AnnotationRecord snapshots to
+`data/real/annotations/<annotator>.jsonl`; agreement inputs are unchanged. Only
+human-confirmed or human-corrected fields enter that file. Skips remain missing
+fields, while confirmed ABSENT proposals have null value/span and status absent.
+
+`<annotator>.proposals.jsonl` is a separate JSONL event log, not a gold file.
+Events include decision_id, annotator, doc_id, field, annotation_mode,
+text_sha256, text_path, model, parameters, prompt_version, cache_key, cache_hit,
+llm_proposal, proposal_value, proposal_spans, proposal_error, human_decision,
+final_value, final_annotation, phase, and (for confirmed/saved events) final_quote.
+Human decisions are y/n/s; flags are manually reviewed through n. Decision events
+may have null final values; phase confirmed/saved records the final human label.
+Phase skipped leaves the field unanswered. See
+[annotation_provenance.md](annotation_provenance.md) for recovery and disclosure.

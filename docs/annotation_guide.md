@@ -257,3 +257,13 @@ all disagreements before any real gold record is published.
 **Usually appears:** Notices, Address for Notices or party contact section.
 
 **Examples and boundary rules:** Copy the exact address block. Type \n for saved line breaks; preserve the whole evidence span.
+
+## Optional assisted protocol
+
+`annotate_auto.py --annotator A1` offers LLM proposals for explicit human review.
+The source document remains the authority: the proposal is navigation help, not
+a gold label. Check leg scope and surrounding clauses before pressing y,
+including for ABSENT. Press n to use the manual field workflow, or s to leave the
+field unanswered. No matching span or failed normalisation requires correction
+or skip. See [annotation provenance](annotation_provenance.md) for cache behavior,
+release logs, interrupted-save recovery and the required paper disclosure.
