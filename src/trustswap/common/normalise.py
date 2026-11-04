@@ -11,6 +11,11 @@ def normalise_date(value: str | date) -> str:
     if isinstance(value, date):
         return value.isoformat()
     text = re.sub(r"(?<=\d)(?:st|nd|rd|th)\b", "", value.strip(), flags=re.I)
+    short_year = re.fullmatch(r"(\d{1,2}-[A-Za-z]{3}-)(\d{2})", text)
+    if short_year:
+        prefix, year = short_year.groups()
+        number = int(year)
+        text = prefix + str((2000 if number <= 49 else 1900) + number)
     for fmt in ("%Y-%m-%d", "%d %B %Y", "%d %b %Y", "%B %d, %Y", "%b %d, %Y", "%Y/%m/%d", "%d-%b-%Y", "%B %d %Y", "%b %d %Y"):
         try:
             return datetime.strptime(text, fmt).date().isoformat()

@@ -265,3 +265,17 @@ def test_unresolved_reference_and_document_header_rate_units():
     text = "Fixed Rate (decimal): 0.0425"
     rate = annotate.ask_field("fixed_leg.fixed_rate", text, inputs("0.0425", "decimal", "y"), output)
     assert rate["value"] == "0.0425" and text[slice(*rate["span"])] == "0.0425"
+
+
+@pytest.mark.parametrize("entered", [" 27-Mar-17", "\t27-Mar-17  ", "  text: 27-Mar-17  "])
+def test_annotation_trims_value_before_span_search(entered):
+    text = "Trade Date: 27-Mar-17\nEffective Date: 29-Mar-17"
+    answer = annotate.ask_field("trade_date", text, inputs(entered, "y"), io.StringIO())
+    assert answer["value"] == "2017-03-27"
+    assert text[slice(*answer["span"])] == "27-Mar-17"
+    assert answer["span"][0] == text.index("27-Mar-17")
+
+
+def test_annotation_trims_reference_value():
+    answer = annotate.ask_field("effective_date", "See incorporated schedule", inputs("ref", " 01-Apr-22 ", "y"), io.StringIO())
+    assert answer == {"value": "2022-04-01", "span": None, "status": "by_reference"}

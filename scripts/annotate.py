@@ -65,7 +65,7 @@ def occurrences(text, quote):
 
 def ask_field(path, text, ask, output):
     while True:
-        entered = ask("Exact value / absent / ref / amb / show / back / reject <reason>: ")
+        entered = ask("Exact value / absent / ref / amb / show / back / reject <reason>: ").strip()
         command = entered.strip().lower()
         if command == "show":
             for number, line in enumerate(text.splitlines(), 1):
@@ -75,12 +75,12 @@ def ask_field(path, text, ask, output):
             if command in {"absent", "amb"}:
                 answer = validated_field(path, None, None, "absent" if command == "absent" else "ambiguous")
             elif command == "ref":
-                raw = ask("Value supported by the incorporated reference (blank if unresolved): ")
+                raw = ask("Value supported by the incorporated reference (blank if unresolved): ").strip()
                 value = _normalise_human(path, raw, ask) if raw.strip() else None
                 answer = validated_field(path, value, None, "by_reference")
             else:
                 raw = entered[5:] if entered.startswith("text:") else entered
-                raw = raw.replace("\\n", "\n")
+                raw = raw.replace("\\n", "\n").strip()
                 matches = occurrences(text, raw)
                 if not matches:
                     raise ValueError("No exact occurrence in the saved text. Copy the value exactly (use \\n for line breaks).")
@@ -90,7 +90,7 @@ def ask_field(path, text, ask, output):
                     for index, (start, end) in enumerate(matches, 1):
                         print(f"{index}: [{start}, {end}) ...{_safe(text[max(0, start - 45):end + 45])}...", file=output)
                     while True:
-                        choice = ask(f"Choose occurrence 1–{len(matches)}: ")
+                        choice = ask(f"Choose occurrence 1–{len(matches)}: ").strip()
                         if choice.isdigit() and 1 <= int(choice) <= len(matches):
                             span = matches[int(choice) - 1]
                             break
