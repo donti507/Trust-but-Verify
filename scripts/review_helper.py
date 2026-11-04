@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 PRODUCTS = {"1": "irs_fixed_float", "2": "basis", "3": "cap_floor", "4": "other"}
-KEYWORDS = re.compile(r"Notional|Fixed\s+Rate|Floating\s+Rate\s+Option|Termination\s+Date|Trade\s+Date", re.I)
+KEYWORDS = re.compile(r"Notional|Fixed\s+Rate|Floating\s+Rate\s+Option|Termination\s+Date|Trade\s+Date|Effective\s+Date", re.I)
 ANSWER_COLUMNS = ("is_confirmation", "product_type", "review_status")
 
 
@@ -110,17 +110,17 @@ def local_text_path(value, csv_path):
     return existing.pop()
 
 
-def show_document(row, csv_path, *, output, color=False):
+def show_document(row, csv_path, *, output, color=False, head_lines=60):
     print(f"URL: {_safe(row['document_url'])}", file=output)
     print(f"Era: {_safe(row['era'])} | Screen label: {_safe(row['label'])}", file=output)
     print(f"Pages: {_safe(row.get('page_count') or 'unknown')} ({_safe(row.get('page_count_basis') or 'unknown basis')})", file=output)
     path = local_text_path(row["text_path"], csv_path)
-    print("First 60 lines, plus all matching lines (original line numbers):", file=output)
+    print(f"First {head_lines} lines, plus all matching lines (original line numbers):", file=output)
     previous = 0
     with path.open(encoding="utf-8") as handle:
         for number, line in enumerate(handle, 1):
             line = _safe(line.rstrip("\r\n"))
-            if number > 60 and not KEYWORDS.search(line):
+            if number > head_lines and not KEYWORDS.search(line):
                 continue
             if number > previous + 1:
                 print(f"  ... lines {previous + 1}–{number - 1} omitted ...", file=output)

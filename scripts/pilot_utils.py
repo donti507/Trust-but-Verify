@@ -10,13 +10,18 @@ import tempfile
 from trustswap.common.annotations import AnnotationRecord
 
 
-def read_csv(path):
-    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        columns = list(reader.fieldnames or [])
-        rows = list(reader)
+def read_csv_snapshot(path):
+    raw = Path(path).read_bytes()
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"), newline=""))
+    columns = list(reader.fieldnames or [])
+    rows = list(reader)
     if any(None in row or any(value is None for value in row.values()) for row in rows):
         raise ValueError("malformed CSV")
+    return columns, rows, hashlib.sha256(raw).hexdigest()
+
+
+def read_csv(path):
+    columns, rows, _ = read_csv_snapshot(path)
     return columns, rows
 
 
@@ -68,3 +73,26 @@ def read_annotations(path):
 def save_annotations(path, records, expected):
     text = "".join(record.model_dump_json() + "\n" for record in records.values())
     return atomic_text(path, text, expected=expected, check=True)
+
+
+def rejection_path(pilot_path):
+    return Path(pilot_path).parent / "pilot_rejections.csv"
+
+
+def rejection_history(pilot_path):
+    path = rejection_path(pilot_path)
+    return read_csv(path)[1] if path.exists() else []
+
+
+def archive_rejections(pilot_path, rows):
+    """Preserve removed rows and reasons; never delete their annotation files."""
+    path = rejection_path(pilot_path)
+    expected = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+    old_columns, old_rows = read_csv(path) if path.exists() else ([], [])
+    combined = {row["doc_id"]: row for row in old_rows}
+    for row in rows:
+        combined[row["doc_id"]] = {**combined.get(row["doc_id"], {}), **row}
+    columns = list(dict.fromkeys([*old_columns, *(key for row in combined.values() for key in row)]))
+    if combined:
+        write_csv(path, columns, [{key: row.get(key, "") for key in columns} for row in combined.values()],
+                  expected=expected, check=True)

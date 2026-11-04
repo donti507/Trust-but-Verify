@@ -7,9 +7,9 @@ from pathlib import Path
 
 from trustswap.common.annotations import FIELDS, canonical_value
 if __package__:
-    from .pilot_utils import read_annotations, write_csv
+    from .pilot_utils import read_annotations, write_csv, read_csv
 else:
-    from pilot_utils import read_annotations, write_csv
+    from pilot_utils import read_annotations, write_csv, read_csv
 
 ADJ_COLUMNS = ("doc_id", "field", "reason", "A1_status", "A1_value", "A1_span", "A2_status", "A2_value", "A2_span", "text_path")
 METRIC_COLUMNS = ("field", "paired", "unpaired", "value_exact_matches", "value_exact_rate", "status_kappa", "span_exact_matches", "field_exact_matches")
@@ -103,6 +103,7 @@ def main(argv=None):
     parser.add_argument("--a2", type=Path, default=Path("data/real/annotations/A2.jsonl"))
     parser.add_argument("--output", type=Path, default=Path("data/real/adjudication.csv"))
     parser.add_argument("--metrics", type=Path, default=Path("data/real/agreement.csv"))
+    parser.add_argument("--pilot", type=Path, default=Path("data/real/pilot20.csv"), help="limit reports to current non-rejected pilot when present")
     parser.add_argument("--overwrite", action="store_true", help="replace previous generated reports; preserve lead edits first")
     args = parser.parse_args(argv)
     try:
@@ -110,6 +111,14 @@ def main(argv=None):
             raise ValueError("both annotation files are required")
         left, _ = read_annotations(args.a1)
         right, _ = read_annotations(args.a2)
+        if args.pilot.exists():
+            _, pilot = read_csv(args.pilot)
+            active = {row["doc_id"] for row in pilot if not row.get("rejected_reason", "").strip()
+                      and row.get("split") != "real_test"}
+            if not active:
+                raise ValueError("pilot has no active documents; run select_pilot.py --top-up")
+            left = {key: record for key, record in left.items() if key in active}
+            right = {key: record for key, record in right.items() if key in active}
         if left and right and {record.annotator for record in left.values()} & {record.annotator for record in right.values()}:
             raise ValueError("agreement requires independent annotator identities")
         if not args.overwrite and (args.output.exists() or args.metrics.exists()):
