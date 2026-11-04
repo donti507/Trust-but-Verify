@@ -249,3 +249,20 @@ def test_named_month_short_year_pivot(value, expected):
 def test_numeric_dates_and_invalid_short_year_date_refused(value):
     with pytest.raises(ValueError):
         normalise_date(value)
+
+
+@pytest.mark.parametrize("value", ["None", "N/A", "Not Applicable", "none", "n/a", "NOT APPLICABLE", "  None  "])
+def test_explicit_no_spread_wording_is_zero(value):
+    assert normalise_rate(value, is_spread=True) == Decimal(0)
+
+
+@pytest.mark.parametrize("value", ["None", "N/A", "Not Applicable"])
+def test_no_spread_wording_is_not_a_generic_zero_rate(value):
+    with pytest.raises(ValueError):
+        normalise_rate(value)
+
+
+@pytest.mark.parametrize("value", [None, "", "absent"])
+def test_missing_spread_does_not_invent_zero(value):
+    with pytest.raises(ValueError):
+        normalise_rate(value, is_spread=True)

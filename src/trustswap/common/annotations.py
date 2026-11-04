@@ -22,7 +22,7 @@ def normalise_field(path, text, *, rate_unit=None):
     if name.endswith("_date"):
         return n.normalise_date(text)
     if name in {"fixed_rate", "spread"}:
-        return n.normalise_rate(text, unit=rate_unit)
+        return n.normalise_rate(text, unit=rate_unit, is_spread=name == "spread")
     if name == "notional_amount":
         return n.normalise_notional(text)[0]
     if name == "notional_currency":
