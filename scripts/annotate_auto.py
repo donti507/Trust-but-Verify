@@ -39,7 +39,7 @@ def make_prompt(field, text):
 
 
 class HTTPModel:
-    """Minimal stdlib clients; endpoint/settings are cache identity, keys are not."""
+    """OpenAI-compatible SDK and local Ollama; credentials never enter cache keys."""
     def __init__(self, model="local:qwen2.5:7b", *, local_url="http://127.0.0.1:11434/api/generate", timeout=300):
         self.identity = model
         self.timeout = timeout
@@ -48,8 +48,12 @@ class HTTPModel:
             raise ValueError("--model must be local:<installed-name> or openai:<model-id>")
         self.provider = provider
         if provider == "openai":
-            self.endpoint = "https://api.openai.com/v1/responses"
-            self.parameters = {"endpoint": self.endpoint, "max_output_tokens": 1024}
+            self.endpoint = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+            parsed = urlparse(self.endpoint)
+            if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                    or parsed.username or parsed.password or parsed.query or parsed.fragment):
+                raise ValueError("OPENAI_BASE_URL must be an HTTP(S) base URL without embedded credentials")
+            self.parameters = {"endpoint": self.endpoint.rstrip("/"), "api": "chat.completions", "max_tokens": 1024}
         else:
             parsed = urlparse(local_url)
             if (parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
@@ -61,23 +65,25 @@ class HTTPModel:
     def __call__(self, prompt):
         headers = {"Content-Type": "application/json"}
         if self.provider == "openai":
-            key = os.environ.get("OPENAI_API_KEY", "")
-            if not key:
-                raise ValueError("OPENAI_API_KEY is required on an uncached frontier request")
-            headers["Authorization"] = "Bearer " + key
-            payload = {"model": self.name, "input": prompt, "max_output_tokens": 1024}
+            import openai
+            # Let the SDK read OPENAI_API_KEY and OPENAI_BASE_URL itself.
+            # Construct only on a cache miss, so cached runs need no credentials.
+            with openai.OpenAI() as client:
+                response = client.with_options(timeout=self.timeout, max_retries=0).chat.completions.create(
+                    model=self.name, messages=[{"role": "user", "content": prompt}], max_tokens=1024,
+                )
+            if not response.choices:
+                raise ValueError("frontier returned no choices")
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                raise ValueError("frontier output token limit reached")
+            value = choice.message.content
         else:
             payload = {"model": self.name, "prompt": prompt, "stream": False,
                        "options": {key: value for key, value in self.parameters.items() if key != "endpoint"}}
-        request = Request(self.endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urlopen(request, timeout=self.timeout) as response:
-            data = json.loads(response.read())
-        if self.provider == "openai":
-            if data.get("status") == "incomplete":
-                raise ValueError("frontier output is incomplete")
-            value = "".join(item.get("text", "") for message in data.get("output", [])
-                            for item in message.get("content", []) if item.get("type") == "output_text")
-        else:
+            request = Request(self.endpoint, data=json.dumps(payload).encode(), headers=headers, method="POST")
+            with urlopen(request, timeout=self.timeout) as response:
+                data = json.loads(response.read())
             if data.get("done_reason") == "length":
                 raise ValueError("local output token limit reached")
             value = data.get("response")

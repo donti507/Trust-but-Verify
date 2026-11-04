@@ -9,3 +9,4 @@ pytesseract
 QuantLib
 WeasyPrint
 Jinja2
+openai>=1

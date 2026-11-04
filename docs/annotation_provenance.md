@@ -18,7 +18,7 @@ decision; the model response alone is never an annotation.
 
 The default backend is an already-installed Ollama model on loopback. Nothing
 installs or downloads a model. `--model openai:<model-id>` explicitly selects the
-OpenAI Responses API and sends the full document; it reads OPENAI_API_KEY only
+OpenAI-compatible Chat Completions API and sends the full document; it reads OPENAI_API_KEY and OPENAI_BASE_URL only
 for an uncached request. No credentials are persisted. Operators must choose a
 backend suitable for their documents before running it.
 
