@@ -189,6 +189,8 @@ def main(argv=None) -> int:
     go.add_argument("--k", type=int, default=5)
     go.add_argument("--budget-tokens", type=int)
     go.add_argument("--workers", type=int, default=4)
+    go.add_argument("--retry-max-tokens", type=int, default=16384,
+                    help="retry calls cut off by the output limit once with this limit (0 = never)")
     go.add_argument("--yes", action="store_true")
     for name in ("verify", "inject", "check"):
         p = sub.add_parser(name)
@@ -206,7 +208,8 @@ def main(argv=None) -> int:
         print(f"{len(selected)} documents x K={args.k}; estimated tokens (before cache): {need[args.model]:,}")
         if not args.yes and input("continue? [y/N] ").strip().lower() != "y":
             return 1
-        P.run((args.model,), selected, args.k, args.budget_tokens, args.workers, args.cache)
+        P.run((args.model,), selected, args.k, args.budget_tokens, args.workers, args.cache,
+              retry_max_tokens=args.retry_max_tokens or None)
     elif args.command == "verify":
         print(f"verifier records: {cmd_verify(args.model, docs, args.cache)}")
     elif args.command == "inject":

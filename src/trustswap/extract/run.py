@@ -36,7 +36,11 @@ def temperature_for(k: int, sampling_temperature: float = 0.7) -> float:
 
 def extract_document(doc_id: str, text: str, client: Client, *, model_id: str, cache: Cache,
                      out_dir: Path, k_samples: int = 1, sampling_temperature: float = 0.7,
-                     prompt_version: str = PROMPT_VERSION, split: str | None = None) -> list[dict]:
+                     prompt_version: str = PROMPT_VERSION, split: str | None = None,
+                     retry_max_tokens: int | None = None) -> list[dict]:
+    """K records for one document. A call cut off by the output limit (finish_reason
+    "length", e.g. long model reasoning) is retried once with ``retry_max_tokens``;
+    the retry has its own cache key, so the first attempt stays cached too."""
     if split in BLOCKED_SPLITS:
         raise PermissionError(f"{doc_id}: split {split} is locked until pre-registration (Step 19)")
     messages = build_messages(text, prompt_version)
@@ -49,13 +53,27 @@ def extract_document(doc_id: str, text: str, client: Client, *, model_id: str, c
         cached = cache.has(key)
         raw = cache.get_or_compute(key, lambda: client.complete(messages, temperature=temperature, seed=k).to_cache())
         completion = Completion.from_cache(raw)
+        fresh = 0 if cached else (completion.input_tokens or 0) + (completion.output_tokens or 0)
+        spent_in, spent_out = completion.input_tokens or 0, completion.output_tokens or 0
+        retried = False
+        if completion.finish_reason == "length" and retry_max_tokens:
+            retry_key = call_key(model_id, prompt_version, prompt, {**params, "max_tokens": retry_max_tokens})
+            retry_cached = cache.has(retry_key)
+            raw = cache.get_or_compute(retry_key, lambda: client.complete(
+                messages, temperature=temperature, seed=k, max_tokens=retry_max_tokens).to_cache())
+            completion = Completion.from_cache(raw)
+            fresh += 0 if retry_cached else (completion.input_tokens or 0) + (completion.output_tokens or 0)
+            spent_in += completion.input_tokens or 0
+            spent_out += completion.output_tokens or 0
+            key, cached, retried = retry_key, cached and retry_cached, True
         parsed = parse_completion(completion.text, text, completion.tokens)
         records.append({
             "doc_id": doc_id, "model": model_id, "prompt_version": prompt_version, "k": k,
             "temperature": temperature, "schema_valid": parsed.schema_valid, "errors": parsed.errors,
             "structure": parsed.structure, "fields": parsed.fields,
-            "finish_reason": completion.finish_reason, "input_tokens": completion.input_tokens,
-            "output_tokens": completion.output_tokens, "latency_s": completion.latency_s, "cache_key": key, "cached": cached,
+            "finish_reason": completion.finish_reason, "input_tokens": spent_in,
+            "output_tokens": spent_out, "latency_s": completion.latency_s, "cache_key": key, "cached": cached,
+            "retried_after_length": retried, "fresh_tokens": fresh,
         })
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{doc_id}.jsonl"

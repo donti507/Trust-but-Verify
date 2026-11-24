@@ -160,7 +160,7 @@ def test_extract_document_writes_k_records_and_never_recalls(documents, tmp_path
     kwargs = dict(model_id="fake@1", cache=Cache(tmp_path / "raw"), out_dir=tmp_path / "extract", k_samples=3)
     first = extract_document("doc_0", rendered.text, model, **kwargs)
     second = extract_document("doc_0", rendered.text, model, **kwargs)
-    strip = lambda rs: [{k: v for k, v in r.items() if k != "cached"} for r in rs]  # noqa: E731
+    strip = lambda rs: [{k: v for k, v in r.items() if k not in {"cached", "fresh_tokens"}} for r in rs]  # noqa: E731
     assert model.calls == 3 and strip(first) == strip(second)
     assert not any(r["cached"] for r in first) and all(r["cached"] for r in second)
     lines = (tmp_path / "extract" / "doc_0.jsonl").read_text().splitlines()
@@ -406,3 +406,30 @@ def test_json_object_mode_sends_plain_json_response_format(monkeypatch):
                        api_key_env="X_KEY", structured="json_object")
     C.OpenAICompatClient(spec).complete([], temperature=0.0, seed=0)
     assert captured["call"]["response_format"] == {"type": "json_object"}
+
+
+def test_truncated_call_is_retried_once_with_a_larger_limit(documents, tmp_path):
+    rendered = documents[0]
+    answer = json.dumps(gold_answer(rendered.gold.trade, rendered.text))
+
+    class Thinker:
+        params = {"structured": "json_schema"}
+        calls = []
+
+        def complete(self, messages, *, temperature, seed, max_tokens=None):
+            self.calls.append(max_tokens)
+            if max_tokens is None:  # default limit: all spent on reasoning
+                return C.Completion(text="", finish_reason="length", input_tokens=100, output_tokens=4096)
+            return C.Completion(text=answer, finish_reason="stop", input_tokens=100, output_tokens=900)
+
+    model = Thinker()
+    kwargs = dict(model_id="fake@1", cache=Cache(tmp_path / "raw"), out_dir=tmp_path / "ex", k_samples=1)
+    plain = extract_document("doc_0", rendered.text, model, **kwargs)
+    assert plain[0]["schema_valid"] is False and plain[0]["finish_reason"] == "length"
+    retried = extract_document("doc_0", rendered.text, model, retry_max_tokens=16384, **kwargs)
+    record = retried[0]
+    assert record["schema_valid"] and record["retried_after_length"] and record["finish_reason"] == "stop"
+    assert record["output_tokens"] == 4096 + 900 and record["fresh_tokens"] == 100 + 900  # first call was cached
+    assert model.calls == [None, 16384]
+    again = extract_document("doc_0", rendered.text, model, retry_max_tokens=16384, **kwargs)
+    assert model.calls == [None, 16384] and again[0]["fresh_tokens"] == 0 and again[0]["cached"]
