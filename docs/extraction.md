@@ -58,3 +58,24 @@ schema is not enforced by the server; the parser still validates every output.
   (`configs/pricing.yaml`), plus example mismatches.
 * Prompt changes are judged on dev documents only. `freeze` writes
   `prereg/prompt-freeze.json`; a test then fails if that prompt version changes.
+
+## Step 12 full extraction
+
+* **Datasets** (`scripts/build_datasets.py`, deterministic and resumable):
+  clean synthetic (train 300 / dev 100 / syn_test 100), noisy scan-like twins of
+  half of them (`synth/noise.py`: OCR-style character confusions and broken
+  lines; gold values unchanged, spans mapped; `ocr: true`), and adversarial
+  cases from 30 parents (12 defects x 2 severities + 12 controls each).
+  Clean synthetic documents produce no LLM errors in the pilot, so noisy twins
+  give the risk model (Step 14) errors to learn from within the train split.
+* **Budget plan**: the frontier model (PCSS quota) runs K = 1 on a stratified,
+  seed-fixed subset sized to the token budget (`build_datasets.py plan`). Its
+  uncertainty comes from token log-probs. The open-weights model runs every
+  document with K = 5 on Kaggle (`notebooks/s12_kaggle_open_weights.ipynb`).
+* **Verifier records** `cache/verify/<model>/<doc_id>.json` (verifier hash included).
+* **Extracted-field injection** (experiment family 2, kept apart): copies of
+  k = 0 records with one planted error each (scale, near number, date shift,
+  code swap, party swap, dropped value) in `cache/extract_injected/`, verified
+  into `cache/verify_injected/`; detection table in `results/injection_tests_<model>.md`.
+* **Check**: `full_extraction.py check` confirms K records and one verifier
+  record per document and writes a 20-document spot-check sheet to tick by hand.
