@@ -132,10 +132,11 @@ class OpenAICompatClient:
                 raise RuntimeError(f"{self.spec.name} rejected the request "
                                    f"({error.status_code}): {_message(error)}") from None
 
-    def complete(self, messages: list[dict], *, temperature: float, seed: int) -> Completion:
+    def complete(self, messages: list[dict], *, temperature: float, seed: int,
+                 max_tokens: int | None = None) -> Completion:
         schema = output_schema()
         kwargs: dict = {"model": self.spec.name, "messages": messages, "temperature": temperature,
-                        "max_tokens": self.spec.max_tokens}
+                        "max_tokens": max_tokens or self.spec.max_tokens}
         if self.spec.send_seed:
             kwargs["seed"] = seed
         extra = dict(self.spec.extra_body)

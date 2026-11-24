@@ -133,15 +133,21 @@ def parse_completion(raw: str, text: str, tokens: list[tuple[str, float]] | None
 
 def to_trade(parsed: Parsed):
     """InterestRateSwap for the verifier: normalised values, located spans, null -> absent."""
-    from trustswap.common.schema import InterestRateSwap
-
     if not parsed.schema_valid:
         return None
+    return trade_from_fields(parsed.fields)
+
+
+def trade_from_fields(fields: dict[str, dict]):
+    """Build a trade from extraction-record fields ({path: {"value", "span", ...}})."""
+    from trustswap.common.schema import InterestRateSwap
+
     record: dict = {}
-    for path, item in parsed.fields.items():
-        value = item["value"]
+    for path, item in fields.items():
+        value = item.get("value")
         status = "explicit" if value is not None else "absent"
-        term = {"value": value, "span": item["span"] if value is not None else None, "status": status}
+        span = item.get("span") if value is not None else None
+        term = {"value": value, "span": span, "status": status}
         if "." in path:
             leg, name = path.split(".", 1)
             record.setdefault(leg, {})[name] = term

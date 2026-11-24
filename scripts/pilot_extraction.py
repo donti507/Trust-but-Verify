@@ -74,7 +74,8 @@ def make_synthetic(n: int, out: Path = PILOT) -> Path:
 
 # ---------- run ----------
 
-def run(tracks, docs: list[dict], k: int, budget: int | None, workers: int, cache_root: Path, log=print) -> dict:
+def run(tracks, docs: list[dict], k: int, budget: int | None, workers: int, cache_root: Path, log=print,
+        retry_max_tokens: int | None = None) -> dict:
     models = load_models()
     used = {track: 0 for track in tracks}
     lock = threading.Lock()
@@ -93,7 +94,8 @@ def run(tracks, docs: list[dict], k: int, budget: int | None, workers: int, cach
                 return None
             text = doc["_text_path"].read_text(encoding="utf-8")
             return extract_document(doc["doc_id"], text, client, model_id=spec.model_id, cache=cache,
-                                    out_dir=out_dir, k_samples=k, split=doc.get("split"))
+                                    out_dir=out_dir, k_samples=k, split=doc.get("split"),
+                                    retry_max_tokens=retry_max_tokens)
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(one, doc): doc for doc in docs}
@@ -101,7 +103,7 @@ def run(tracks, docs: list[dict], k: int, budget: int | None, workers: int, cach
                 records = future.result()
                 if records is None:
                     continue
-                fresh = sum((r["input_tokens"] or 0) + (r["output_tokens"] or 0) for r in records if not r["cached"])
+                fresh = sum(r["fresh_tokens"] for r in records)
                 with lock:
                     used[track] += fresh
                     valid += sum(r["schema_valid"] for r in records)
