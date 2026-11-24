@@ -160,7 +160,9 @@ def test_extract_document_writes_k_records_and_never_recalls(documents, tmp_path
     kwargs = dict(model_id="fake@1", cache=Cache(tmp_path / "raw"), out_dir=tmp_path / "extract", k_samples=3)
     first = extract_document("doc_0", rendered.text, model, **kwargs)
     second = extract_document("doc_0", rendered.text, model, **kwargs)
-    assert model.calls == 3 and first == second
+    strip = lambda rs: [{k: v for k, v in r.items() if k != "cached"} for r in rs]  # noqa: E731
+    assert model.calls == 3 and strip(first) == strip(second)
+    assert not any(r["cached"] for r in first) and all(r["cached"] for r in second)
     lines = (tmp_path / "extract" / "doc_0.jsonl").read_text().splitlines()
     assert [json.loads(line)["k"] for line in lines] == [0, 1, 2]
     record = json.loads(lines[0])
@@ -187,7 +189,7 @@ def test_temperature_schedule():
 def test_models_config_loads_and_refuses_unpinned_models():
     models = C.load_models()
     assert set(models) == {"frontier", "open_weights"}
-    assert models["open_weights"].structured == "guided_json" and models["open_weights"].logprobs
+    assert all(m.structured in {"json_schema", "guided_json", "json_object"} for m in models.values())
     unpinned = C.ModelSpec(key="x", name="m", version="PIN-ME", access_date="PIN-ME",
                            base_url_env=None, api_key_env="X_KEY")
     with pytest.raises(ValueError):
@@ -337,3 +339,70 @@ def test_client_reports_provider_message_on_bad_request(monkeypatch):
     spec = C.ModelSpec(key="x", name="m", version="v", access_date="2026-11-24", base_url_env=None, api_key_env="X_KEY")
     with pytest.raises(RuntimeError, match='Unknown name "seed"'):
         C.OpenAICompatClient(spec, sleep=lambda _: None).complete([], temperature=0.0, seed=0)
+
+
+# ---------- pin_model tool ----------
+
+def test_pin_model_chooses_strongest_working_settings():
+    from scripts.pin_model import choose
+
+    ok, fail = (True, ""), (False, "x")
+    base = {"plain": ok, "seed": fail, "json_schema": fail, "guided_json": ok, "json_object": ok, "logprobs": ok}
+    assert choose(base) == {"structured": "guided_json", "send_seed": False, "logprobs": True}
+    assert choose({**base, "json_schema": ok})["structured"] == "json_schema"
+    with pytest.raises(SystemExit):
+        choose({**base, "guided_json": fail, "json_object": fail})
+    with pytest.raises(SystemExit):
+        choose({**base, "plain": fail})
+
+
+def test_pin_model_edits_only_one_track_and_keeps_comments(tmp_path):
+    from scripts.pin_model import write_track
+
+    config = tmp_path / "models.yaml"
+    config.write_text(C.MODELS_CONFIG.read_text())
+    write_track(config, "frontier", {"name": "DeepSeek-V4.1-Flash", "version": "deepseek-ai/x-1017",
+                                     "access_date": "2026-11-24", "structured": "json_object",
+                                     "send_seed": True, "logprobs": False})
+    text = config.read_text()
+    assert "# Extraction models (Step 10)" in text
+    models = C.load_models(config)
+    assert models["frontier"].name == "DeepSeek-V4.1-Flash" and models["frontier"].structured == "json_object"
+    assert models["frontier"].send_seed is True and models["frontier"].access_date == "2026-11-24"
+    assert models["open_weights"] == C.load_models()["open_weights"]  # untouched
+
+
+def test_pin_model_probe_reports_each_feature():
+    from scripts.pin_model import probe
+
+    class Choice:
+        def __init__(self, text, logprobs=None):
+            self.message = type("M", (), {"content": text})()
+            self.logprobs = logprobs
+
+    class Fake:
+        def __init__(self):
+            self.chat = type("Chat", (), {"completions": self})()
+
+        def create(self, **kw):
+            if "seed" in kw or "json_schema" in json.dumps(kw.get("response_format", {})):
+                raise ValueError("unsupported")
+            text = '{"structure": "fixed_float", "fields": {}}' if ("response_format" in kw or "extra_body" in kw) else "hi"
+            lp = type("L", (), {"content": [1]})() if kw.get("logprobs") else None
+            return type("R", (), {"choices": [Choice(text, lp)]})()
+
+    results = probe(Fake(), "m")
+    assert results["plain"][0] and results["guided_json"][0] and results["json_object"][0] and results["logprobs"][0]
+    assert not results["seed"][0] and not results["json_schema"][0]
+
+
+def test_json_object_mode_sends_plain_json_response_format(monkeypatch):
+    import openai
+
+    captured = {}
+    monkeypatch.setattr(openai, "OpenAI", _fake_openai(captured))
+    monkeypatch.setenv("X_KEY", "k")
+    spec = C.ModelSpec(key="x", name="m", version="v", access_date="2026-11-24", base_url_env=None,
+                       api_key_env="X_KEY", structured="json_object")
+    C.OpenAICompatClient(spec).complete([], temperature=0.0, seed=0)
+    assert captured["call"]["response_format"] == {"type": "json_object"}

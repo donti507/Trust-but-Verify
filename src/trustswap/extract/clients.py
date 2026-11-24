@@ -6,6 +6,7 @@ configuration (configs/models.yaml):
 
 * ``structured: json_schema``  -> response_format JSON-schema mode (frontier, recent vLLM)
 * ``structured: guided_json``  -> vLLM's grammar-constrained ``guided_json``
+* ``structured: json_object``  -> plain JSON mode (fallback; the parser still validates the schema)
 * ``logprobs: true``           -> request token log-probs
 
 Credentials come only from environment variables named in the config; they never
@@ -143,6 +144,8 @@ class OpenAICompatClient:
                                          "json_schema": {"name": "swap_extraction", "schema": schema, "strict": True}}
         elif self.spec.structured == "guided_json":
             extra["guided_json"] = schema
+        elif self.spec.structured == "json_object":
+            kwargs["response_format"] = {"type": "json_object"}
         else:
             raise ValueError(f"unknown structured mode {self.spec.structured!r}")
         if self.spec.logprobs:

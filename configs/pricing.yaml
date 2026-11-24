@@ -1,0 +1,7 @@
+# List prices per 1M tokens, used only to report cost per document (Step 11).
+# Source: PCSS AI Hub model page, read 2026-11-24. The student service is billed
+# against a token quota, so these are equivalent costs, not charges.
+currency: PLN
+models:
+  frontier:     {input_per_million: 3.627, output_per_million: 7.255}   # DeepSeek-V4.1-Flash
+  open_weights: {input_per_million: 0.358, output_per_million: 0.717}   # Qwen3.8-27B

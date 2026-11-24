@@ -30,3 +30,31 @@
 
 Step 10 check: `python scripts/extract.py --model frontier --docs data/synthetic/docs.jsonl --limit 10`
 and the same with `--model open_weights` must both print `schema-valid: 10/10 = 100.0%`.
+
+## Pinning a model (`scripts/pin_model.py`)
+
+The tool probes an OpenAI-compatible endpoint (seed, JSON-schema mode, vLLM
+`guided_json`, plain JSON mode, log-probs) and writes the strongest working
+settings for one track into `configs/models.yaml`, keeping comments:
+
+    python scripts/pin_model.py --track frontier --name DeepSeek-V4.1-Flash \
+        --version deepseek-ai/DeepSeek-V4.1-Flash-1017
+
+Both tracks may point at the PCSS AI Hub (`https://llm.hpc.psnc.pl/v1`), an
+OpenAI-compatible service for open-weight models. In `json_object` mode the
+schema is not enforced by the server; the parser still validates every output.
+
+## Step 11 pilot (`scripts/pilot_extraction.py`)
+
+* `make-synthetic --n 100` renders pilot documents into `data/pilot/` from train
+  and dev template families only (never syn_test).
+* `run` extracts with one or both models (K samples; k = 0 at temperature 0),
+  in parallel, through the cache. `--budget-tokens` stops after that many fresh
+  tokens; an estimate (from cached averages) is shown before any call. Real
+  pilot documents must come from `real_cal`.
+* `report` writes `results/pilot_extraction.md`: per collection and model, the
+  schema-valid rate, structure accuracy, field accuracy (k = 0, ambiguous gold
+  excluded), K-sample consistency, latency, tokens and cost per document
+  (`configs/pricing.yaml`), plus example mismatches.
+* Prompt changes are judged on dev documents only. `freeze` writes
+  `prereg/prompt-freeze.json`; a test then fails if that prompt version changes.
