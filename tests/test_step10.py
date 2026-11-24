@@ -273,3 +273,65 @@ def test_extract_script_end_to_end_with_a_fake_model(documents, tmp_path, monkey
     out = capsys.readouterr().out
     assert code == 0 and f"schema-valid: {len(documents)}/{len(documents)} = 100.0%" in out
     assert len(list((tmp_path / "cache" / "extract" / "frontier").glob("*.jsonl"))) == len(documents)
+
+
+def _status_error(cls, code, message):
+    """Provider error object without a real HTTP response (SDK transports differ by version)."""
+    error = cls.__new__(cls)
+    Exception.__init__(error, message)
+    error.message, error.status_code = message, code
+    error.body = {"error": {"code": code, "message": message}}
+    return error
+
+
+def test_client_retries_overload_then_succeeds_and_omits_seed(monkeypatch):
+    import openai
+
+    calls, waits = [], []
+
+    class Flaky:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": self})()
+
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) < 3:
+                raise _status_error(openai.InternalServerError, 503, "high demand")
+            return _Resp()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(openai, "OpenAI", Flaky)
+    monkeypatch.setenv("X_KEY", "k")
+    spec = C.ModelSpec(key="x", name="m", version="v", access_date="2026-11-24", base_url_env=None,
+                       api_key_env="X_KEY", send_seed=False)
+    C.OpenAICompatClient(spec, sleep=waits.append).complete([], temperature=0.0, seed=3)
+    assert len(calls) == 3 and waits == list(C.RETRY_WAITS[:2])
+    assert "seed" not in calls[0]
+
+
+def test_client_reports_provider_message_on_bad_request(monkeypatch):
+    import openai
+
+    class Bad:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": self})()
+
+        def create(self, **kwargs):
+            raise _status_error(openai.BadRequestError, 400, 'Unknown name "seed"')
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(openai, "OpenAI", Bad)
+    monkeypatch.setenv("X_KEY", "k")
+    spec = C.ModelSpec(key="x", name="m", version="v", access_date="2026-11-24", base_url_env=None, api_key_env="X_KEY")
+    with pytest.raises(RuntimeError, match='Unknown name "seed"'):
+        C.OpenAICompatClient(spec, sleep=lambda _: None).complete([], temperature=0.0, seed=0)

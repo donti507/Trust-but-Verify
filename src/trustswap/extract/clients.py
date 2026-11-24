@@ -59,6 +59,7 @@ class ModelSpec:
     structured: str = "json_schema"
     logprobs: bool = False
     max_tokens: int = 4096
+    send_seed: bool = True       # Gemini's OpenAI-compatible API rejects "seed"
     extra_body: dict = field(default_factory=dict)
 
     @property
@@ -78,11 +79,26 @@ def load_models(path: Path = MODELS_CONFIG) -> dict[str, ModelSpec]:
             for key, spec in data["models"].items()}
 
 
+RETRY_WAITS = (5, 15, 30, 60, 120)  # seconds; overloaded providers (503/429) usually recover
+
+
+def _message(error) -> str:
+    """Provider's own error message (never contains the API key)."""
+    body = getattr(error, "body", None)
+    if isinstance(body, list) and body:
+        body = body[0]
+    if isinstance(body, dict):
+        inner = body.get("error", body)
+        if isinstance(inner, dict) and inner.get("message"):
+            return str(inner["message"])
+    return str(error)
+
+
 class OpenAICompatClient:
     """Chat completion with structured JSON output; returns text and token log-probs."""
 
-    def __init__(self, spec: ModelSpec, timeout: float = 300):
-        self.spec, self.timeout = spec, timeout
+    def __init__(self, spec: ModelSpec, timeout: float = 300, sleep=time.sleep):
+        self.spec, self.timeout, self.sleep = spec, timeout, sleep
         self.params = {"structured": spec.structured, "logprobs": spec.logprobs,
                        "max_tokens": spec.max_tokens, "extra_body": spec.extra_body}
 
@@ -93,12 +109,34 @@ class OpenAICompatClient:
         if not key:
             raise RuntimeError(f"set {self.spec.api_key_env} in your environment (never in code or chat)")
         base_url = os.environ.get(self.spec.base_url_env) if self.spec.base_url_env else None
-        return openai.OpenAI(api_key=key, base_url=base_url, timeout=self.timeout, max_retries=2)
+        return openai.OpenAI(api_key=key, base_url=base_url, timeout=self.timeout, max_retries=0)
+
+    def _create(self, kwargs: dict):
+        """One API call with waits on overload / rate limits; clear messages for request errors."""
+        import openai
+
+        retryable = (openai.InternalServerError, openai.RateLimitError, openai.APIConnectionError,
+                     openai.APITimeoutError)
+        for attempt, wait in enumerate((*RETRY_WAITS, None), start=1):
+            try:
+                with self._client() as client:
+                    return client.chat.completions.create(**kwargs)
+            except retryable as error:
+                if wait is None:
+                    raise RuntimeError(f"{self.spec.name}: still failing after {attempt} tries: "
+                                       f"{_message(error)}") from None
+                print(f"  {self.spec.name} busy ({_message(error)[:80]}); retry {attempt} in {wait}s", flush=True)
+                self.sleep(wait)
+            except openai.APIStatusError as error:
+                raise RuntimeError(f"{self.spec.name} rejected the request "
+                                   f"({error.status_code}): {_message(error)}") from None
 
     def complete(self, messages: list[dict], *, temperature: float, seed: int) -> Completion:
         schema = output_schema()
         kwargs: dict = {"model": self.spec.name, "messages": messages, "temperature": temperature,
-                        "seed": seed, "max_tokens": self.spec.max_tokens}
+                        "max_tokens": self.spec.max_tokens}
+        if self.spec.send_seed:
+            kwargs["seed"] = seed
         extra = dict(self.spec.extra_body)
         if self.spec.structured == "json_schema":
             kwargs["response_format"] = {"type": "json_schema",
@@ -112,8 +150,7 @@ class OpenAICompatClient:
         if extra:
             kwargs["extra_body"] = extra
         started = time.perf_counter()
-        with self._client() as client:
-            response = client.chat.completions.create(**kwargs)
+        response = self._create(kwargs)
         latency = time.perf_counter() - started
         if not response.choices:
             raise RuntimeError("model returned no choices")

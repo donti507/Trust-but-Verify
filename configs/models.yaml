@@ -17,6 +17,7 @@ models:
     structured: json_schema
     logprobs: false              # set true where the provider returns token log-probs
     max_tokens: 4096
+    send_seed: false             # Gemini's OpenAI-compatible API rejects "seed"
     extra_body: {}               # OpenAI: {store: false}
   open_weights:
     name: Qwen/Qwen2.5-7B-Instruct-AWQ
