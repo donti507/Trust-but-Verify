@@ -75,3 +75,42 @@ properly in Step 9:
   them; V4 does.
 * No control produces a HARD verdict under any of V1-V7; 1,000 clean sampled
   trades produce no V5-V7 flags.
+
+## Step 9: verifier tests and freeze
+
+`python scripts/verifier_tests.py --freeze` renders 300 clean synthetic
+documents (50 per template family) and 25 adversarial parents (12 defects x 2
+severities + 12 controls each = 900 documents), runs V1-V7, writes
+`results/verifier_tests.md` (not committed) and a draft
+`prereg/verifier-v1.0.json` with the verifier hash. Adversarial cases are
+verified as a *literal reading*: gold labels, with ambiguous fields and
+injector-altered display text replaced by what the page shows (normalised with
+the Step 1 normalisers; text that does not normalise, such as OCR damage, keeps
+the gold value).
+
+First full run (hash `944035e7f16b`, base seed 20261026):
+
+* Clean synthetic gold: **100% pass** (300/300, no HARD from V1-V6; no SOFT either).
+* Controls: **0% false alarms** (0/300 HARD); 1% unexpected SOFT (3/300, below).
+* Recall 100% as predicted: contradiction (V6), legacy index fallback (V6),
+  non-standard calendar (V4), OCR digit corruption (V2), stub ambiguity (V4),
+  unusual day count (V7).
+* Predictions that failed (H4 evidence):
+  * scale error: 0% via the predicted V2/V5, but V6 fires on 100% (the literal
+    reader takes the scaled figure, which is grounded, so V2 passes; V5 has no
+    stated amounts; V6 catches the disagreeing whole-unit statement).
+  * missing information: 36% (sev 1 0%, sev 2 72%). V1 only knows required
+    fields; a missing notice address or spread is invisible to every rule.
+  * multiple notionals: predicted silent, V6 fires on 100%.
+* Silent as predicted: amendment, swapped legs, prompt injection.
+* Known limitation: on basis swaps whose second leg keeps a legacy IBOR, V6
+  flags that leg SOFT when the text has fallback wording for the first leg
+  (3/25 legacy-index controls). V6 cannot tell which leg a fallback clause
+  governs.
+
+Freeze procedure: the domain lead reviews every rule, threshold and
+`src/trustswap/ref/conventions.yaml`; then fill `reviewed_by`/`reviewed_on` in
+the YAML (this changes the hash, so re-run the script with `--freeze`), set
+`status` to `frozen` and `domain_lead_review` in `prereg/verifier-v1.0.json`,
+commit, and tag `verifier-v1.0`. `tests/test_step09.py` then fails on any rule
+change until it is logged in `prereg/verifier_changes.md` with the new hash.

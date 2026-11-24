@@ -16,5 +16,5 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 
 [tool.setuptools.package-data]
-"trustswap.ref" = ["*.txt"]
+"trustswap.ref" = ["*.txt", "*.yaml"]
 "trustswap.synth.templates" = ["*.j2"]

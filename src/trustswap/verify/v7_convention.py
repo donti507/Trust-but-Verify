@@ -10,20 +10,30 @@ Residual: 1.0 when the field departs from the standard, 0.0 otherwise.
   New York + London).
 * Fixed leg day count should be 30/360, ACT/360 or ACT/365.FIXED.
 * Unknown index or currency -> UNDET.
+
+The table lives in trustswap/ref/conventions.yaml for domain-lead review.
 """
 from __future__ import annotations
 
+from importlib.resources import files
+
+import yaml
+
 from trustswap.common.schema import InterestRateSwap
-from trustswap.synth.markets import FIXED_DAY_COUNTS, market_for
+from trustswap.synth.markets import market_for
 from trustswap.verify.base import RuleResult, present_legs
 
-INDEX_STANDARD = {  # option -> (day count, required centres)
-    "USD-SOFR": ("ACT/360", {"USNY"}), "USD-SOFR-COMPOUND": ("ACT/360", {"USNY"}),
-    "USD-LIBOR-BBA": ("ACT/360", {"USNY", "GBLO"}),
-    "EUR-EURIBOR-REUTERS": ("ACT/360", {"EUTA"}), "EUR-EUROSTR": ("ACT/360", {"EUTA"}),
-    "GBP-SONIA": ("ACT/365.FIXED", {"GBLO"}), "GBP-LIBOR-BBA": ("ACT/365.FIXED", {"GBLO"}),
-}
-HOME_CENTER = {"USD": {"USNY"}, "EUR": {"EUTA"}, "GBP": {"GBLO"}}
+CONVENTIONS_FILE = files("trustswap.ref").joinpath("conventions.yaml")
+
+
+def load_conventions() -> dict:
+    return yaml.safe_load(CONVENTIONS_FILE.read_text(encoding="utf-8"))
+
+
+_TABLE = load_conventions()
+INDEX_STANDARD = {name.upper(): (row["day_count"], set(row["centers"])) for name, row in _TABLE["index"].items()}
+HOME_CENTER = {code: set(centers) for code, centers in _TABLE["currency"].items()}
+FIXED_DAY_COUNTS = tuple(_TABLE["fixed_day_counts"])
 
 
 def _allowed(currency: str | None, trade) -> set[str] | None:
