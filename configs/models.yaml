@@ -9,15 +9,15 @@
 #                   then set OPEN_WEIGHTS_BASE_URL=http://<host>:8000/v1 and OPEN_WEIGHTS_API_KEY=<any>.
 models:
   frontier:
-    name: gemini-3.7-flash
-    version: gemini-3.7-flash
+    name: "DeepSeek-V4.1-Flash"
+    version: "deepseek-ai/DeepSeek-V4.1-Flash-1017"
     access_date: "2026-11-24"
     base_url_env: FRONTIER_BASE_URL   # unset -> provider default (OpenAI)
     api_key_env: FRONTIER_API_KEY
-    structured: json_schema
-    logprobs: false              # set true where the provider returns token log-probs
+    structured: "json_schema"
+    logprobs: true
     max_tokens: 4096
-    send_seed: false             # Gemini's OpenAI-compatible API rejects "seed"
+    send_seed: true
     extra_body: {}               # OpenAI: {store: false}
   open_weights:
     name: Qwen/Qwen2.5-7B-Instruct-AWQ
