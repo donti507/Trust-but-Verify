@@ -46,6 +46,7 @@ def extract_document(doc_id: str, text: str, client: Client, *, model_id: str, c
         temperature = temperature_for(k, sampling_temperature)
         params = {**client.params, "temperature": temperature, "k": k, "seed": k}
         key = call_key(model_id, prompt_version, prompt, params)
+        cached = cache.has(key)
         raw = cache.get_or_compute(key, lambda: client.complete(messages, temperature=temperature, seed=k).to_cache())
         completion = Completion.from_cache(raw)
         parsed = parse_completion(completion.text, text, completion.tokens)
@@ -54,7 +55,7 @@ def extract_document(doc_id: str, text: str, client: Client, *, model_id: str, c
             "temperature": temperature, "schema_valid": parsed.schema_valid, "errors": parsed.errors,
             "structure": parsed.structure, "fields": parsed.fields,
             "finish_reason": completion.finish_reason, "input_tokens": completion.input_tokens,
-            "output_tokens": completion.output_tokens, "latency_s": completion.latency_s, "cache_key": key,
+            "output_tokens": completion.output_tokens, "latency_s": completion.latency_s, "cache_key": key, "cached": cached,
         })
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{doc_id}.jsonl"

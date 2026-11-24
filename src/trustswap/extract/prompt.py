@@ -39,6 +39,16 @@ def load_template(version: str = PROMPT_VERSION) -> tuple[str, str]:
     return system.strip() + "\n", user
 
 
+def prompt_sha(version: str = PROMPT_VERSION) -> str:
+    """Fingerprint of a prompt version: template + few-shot file (frozen in Step 11)."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    for name in (f"{version}.txt", f"fewshot_{version}.json"):
+        digest.update(name.encode() + b"\0" + PROMPTS.joinpath(name).read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
 def load_fewshot(version: str = PROMPT_VERSION) -> list[dict]:
     return json.loads(PROMPTS.joinpath(f"fewshot_{version}.json").read_text(encoding="utf-8"))
 

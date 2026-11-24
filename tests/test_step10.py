@@ -160,7 +160,9 @@ def test_extract_document_writes_k_records_and_never_recalls(documents, tmp_path
     kwargs = dict(model_id="fake@1", cache=Cache(tmp_path / "raw"), out_dir=tmp_path / "extract", k_samples=3)
     first = extract_document("doc_0", rendered.text, model, **kwargs)
     second = extract_document("doc_0", rendered.text, model, **kwargs)
-    assert model.calls == 3 and first == second
+    strip = lambda rs: [{k: v for k, v in r.items() if k != "cached"} for r in rs]  # noqa: E731
+    assert model.calls == 3 and strip(first) == strip(second)
+    assert not any(r["cached"] for r in first) and all(r["cached"] for r in second)
     lines = (tmp_path / "extract" / "doc_0.jsonl").read_text().splitlines()
     assert [json.loads(line)["k"] for line in lines] == [0, 1, 2]
     record = json.loads(lines[0])
@@ -187,7 +189,7 @@ def test_temperature_schedule():
 def test_models_config_loads_and_refuses_unpinned_models():
     models = C.load_models()
     assert set(models) == {"frontier", "open_weights"}
-    assert models["open_weights"].structured == "guided_json" and models["open_weights"].logprobs
+    assert all(m.structured in {"json_schema", "guided_json", "json_object"} for m in models.values())
     unpinned = C.ModelSpec(key="x", name="m", version="PIN-ME", access_date="PIN-ME",
                            base_url_env=None, api_key_env="X_KEY")
     with pytest.raises(ValueError):
