@@ -1,0 +1,7 @@
+{
+  "prompt_version": "v1",
+  "prompt_sha256": "05c6a8eb70688ddac1ffa713180501a13d3a6b9952449a88bb7b99769fd5b269",
+  "date": "2026-11-24",
+  "status": "frozen",
+  "note": "Changing the prompt after this requires a new version (v2, ...)."
+}
