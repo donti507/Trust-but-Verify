@@ -1,0 +1,12 @@
+{
+  "tag": "verifier-v1.0",
+  "status": "draft",
+  "verifier_hash": "944035e7f16b551031153b6a0354ba5e76db59e55622a490950c5d2aa84cb4f2",
+  "commit": null,
+  "date": "2026-11-24",
+  "clean_pass_rate": 1.0,
+  "clean_documents": 300,
+  "adversarial_parents": 25,
+  "domain_lead_review": null,
+  "note": "Draft from the first full Step 9 run. After domain-lead sign-off: re-run scripts/verifier_tests.py --freeze, set status to 'frozen', fill domain_lead_review, commit, then tag verifier-v1.0."
+}

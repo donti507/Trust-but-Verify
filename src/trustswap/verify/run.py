@@ -10,10 +10,15 @@ from trustswap.verify.v1_schema import v1_schema
 from trustswap.verify.v2_grounding import v2_grounding
 from trustswap.verify.v3_temporal import v3_temporal
 from trustswap.verify.v4_calendar import v4_calendar
+from trustswap.verify.v5_accrual import v5_accrual
+from trustswap.verify.v6_crossfield import v6_crossfield
+from trustswap.verify.v7_convention import v7_convention
 
-RULES = {"V1": v1_schema, "V2": v2_grounding, "V3": v3_temporal, "V4": v4_calendar}
+RULES = {"V1": v1_schema, "V2": v2_grounding, "V3": v3_temporal, "V4": v4_calendar,
+         "V5": v5_accrual, "V6": v6_crossfield, "V7": v7_convention}
 GENERIC_RULES = ("V1", "V2")
-DOMAIN_RULES = ("V3", "V4")  # V5-V7 arrive in Step 8
+DOMAIN_RULES = ("V3", "V4", "V5", "V6", "V7")
+HARD_RULES = ("V1", "V2", "V3", "V4", "V5", "V6")  # V7 is SOFT only
 
 
 def verify(trade: InterestRateSwap, text: str, rules: tuple[str, ...] = tuple(RULES)) -> dict[str, dict[str, RuleResult]]:

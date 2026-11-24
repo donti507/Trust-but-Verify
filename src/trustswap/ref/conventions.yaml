@@ -1,0 +1,22 @@
+# Market convention prior for verifier rule V7 (SOFT only).
+# Hand-coded; the domain lead signs off this table before the verifier freeze (Step 9).
+# index: floating rate option -> standard day count and the business centres it requires.
+# currency: home centre(s) every leg in that currency should include.
+# fixed_day_counts: fixed-leg day counts that are usual in these markets.
+# Extra centres are allowed when they are usual for the currency and trade-date era
+# (trustswap.synth.markets.market_for, e.g. USD LIBOR before 2022: New York + London).
+reviewed_by: null   # domain lead name, once signed off
+reviewed_on: null   # YYYY-MM-DD
+index:
+  USD-SOFR:            {day_count: ACT/360,       centers: [USNY]}
+  USD-SOFR-COMPOUND:   {day_count: ACT/360,       centers: [USNY]}
+  USD-LIBOR-BBA:       {day_count: ACT/360,       centers: [USNY, GBLO]}
+  EUR-EURIBOR-REUTERS: {day_count: ACT/360,       centers: [EUTA]}
+  EUR-EUROSTR:         {day_count: ACT/360,       centers: [EUTA]}
+  GBP-SONIA:           {day_count: ACT/365.FIXED, centers: [GBLO]}
+  GBP-LIBOR-BBA:       {day_count: ACT/365.FIXED, centers: [GBLO]}
+currency:
+  USD: [USNY]
+  EUR: [EUTA]
+  GBP: [GBLO]
+fixed_day_counts: [30/360, ACT/360, ACT/365.FIXED]
