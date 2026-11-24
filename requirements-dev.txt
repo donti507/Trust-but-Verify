@@ -10,3 +10,4 @@ QuantLib
 WeasyPrint
 Jinja2
 openai>=1
+jsonschema
