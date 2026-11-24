@@ -1,0 +1,384 @@
+[
+ {
+  "doc_id": "fewshot_11",
+  "template_family": "label_value",
+  "split": "train",
+  "text": "SYNTHETIC DOCUMENT: fictional parties, generated for research\nInterest Rate Swap Confirmation\nTransaction Details\nTransaction Date:24-Jul-2017\nCommencement Date:2017-07-26\nTermination Date:26-Jul-2027\nAddress for Notices:Synthetic Party A, 1 Example Street, Example City\nFixed Leg\nPayer:Synthetic Party A\nReceiver:Synthetic Party B\nNotional:14,000,000 EUR\nNotional Currency:EUR\nPayment Frequency:1Y\nDay Count Basis:30/360 (Bond Basis)\nBusiness Day Convention:Modified Following\nBusiness Centers:TARGET\nFixed Rate:2.7800%\nFloating Leg 1\nPayer:Synthetic Party B\nReceiver:Synthetic Party A\nNotional Amount:€14 million\nNotional Currency:EUR\nPayment Interval:annual\nRate Reset Interval:1Y\nDay Count Fraction:Actual/360\nDate Adjustment:Modified Following\nBusiness Centers:TARGET\nFloating Rate Option:EUR-EURIBOR-Reuters\nMargin:0 bps",
+  "answer": {
+   "structure": "fixed_float",
+   "fields": {
+    "trade_date": {
+     "value": "24-Jul-2017",
+     "line": 4,
+     "confidence": 0.95
+    },
+    "effective_date": {
+     "value": "2017-07-26",
+     "line": 5,
+     "confidence": 0.95
+    },
+    "termination_date": {
+     "value": "26-Jul-2027",
+     "line": 6,
+     "confidence": 0.95
+    },
+    "fixed_leg.payer": {
+     "value": "Synthetic Party A",
+     "line": 9,
+     "confidence": 0.95
+    },
+    "fixed_leg.receiver": {
+     "value": "Synthetic Party B",
+     "line": 10,
+     "confidence": 0.95
+    },
+    "fixed_leg.notional_amount": {
+     "value": "14,000,000 EUR",
+     "line": 11,
+     "confidence": 0.95
+    },
+    "fixed_leg.notional_currency": {
+     "value": "EUR",
+     "line": 12,
+     "confidence": 0.95
+    },
+    "fixed_leg.payment_frequency": {
+     "value": "1Y",
+     "line": 13,
+     "confidence": 0.95
+    },
+    "fixed_leg.reset_frequency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.day_count_fraction": {
+     "value": "30/360 (Bond Basis)",
+     "line": 14,
+     "confidence": 0.95
+    },
+    "fixed_leg.business_day_convention": {
+     "value": "Modified Following",
+     "line": 15,
+     "confidence": 0.95
+    },
+    "fixed_leg.business_centers": {
+     "value": "TARGET",
+     "line": 16,
+     "confidence": 0.95
+    },
+    "fixed_leg.fixed_rate": {
+     "value": "2.7800%",
+     "line": 17,
+     "confidence": 0.95
+    },
+    "floating_leg.payer": {
+     "value": "Synthetic Party B",
+     "line": 19,
+     "confidence": 0.95
+    },
+    "floating_leg.receiver": {
+     "value": "Synthetic Party A",
+     "line": 20,
+     "confidence": 0.95
+    },
+    "floating_leg.notional_amount": {
+     "value": "€14 million",
+     "line": 21,
+     "confidence": 0.95
+    },
+    "floating_leg.notional_currency": {
+     "value": "EUR",
+     "line": 22,
+     "confidence": 0.95
+    },
+    "floating_leg.payment_frequency": {
+     "value": "annual",
+     "line": 23,
+     "confidence": 0.95
+    },
+    "floating_leg.reset_frequency": {
+     "value": "1Y",
+     "line": 24,
+     "confidence": 0.95
+    },
+    "floating_leg.day_count_fraction": {
+     "value": "Actual/360",
+     "line": 25,
+     "confidence": 0.95
+    },
+    "floating_leg.business_day_convention": {
+     "value": "Modified Following",
+     "line": 26,
+     "confidence": 0.95
+    },
+    "floating_leg.business_centers": {
+     "value": "TARGET",
+     "line": 27,
+     "confidence": 0.95
+    },
+    "floating_leg.floating_rate_option": {
+     "value": "EUR-EURIBOR-Reuters",
+     "line": 28,
+     "confidence": 0.95
+    },
+    "floating_leg.spread": {
+     "value": "0 bps",
+     "line": 29,
+     "confidence": 0.95
+    },
+    "floating_leg_2.payer": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.receiver": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.notional_amount": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.notional_currency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.payment_frequency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.reset_frequency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.day_count_fraction": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.business_day_convention": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.business_centers": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.floating_rate_option": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg_2.spread": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "notice_address": {
+     "value": "Synthetic Party A, 1 Example Street, Example City",
+     "line": 7,
+     "confidence": 0.95
+    }
+   }
+  }
+ },
+ {
+  "doc_id": "fewshot_12",
+  "template_family": "two_column",
+  "split": "train",
+  "text": "SYNTHETIC DOCUMENT: fictional parties, generated for research\nTransaction Confirmation\nTransaction Details\nTransaction Date 24-Feb-2005\nCommencement Date 2005-02-28\nMaturity Date 2010-03-01\nNotice Address Synthetic Party A, 1 Example Street, Example City\nFloating Leg 1\nPaying Party Synthetic Party B\nReceiving Party Synthetic Party A\nNotional €13 million\nCurrency EUR\nPayment Frequency 3M\nReset Frequency quarterly\nDay Count Basis ACT/360\nDate Adjustment Following\nBusiness Centers TARGET\nFloating Rate Option EUR-EURIBOR-Reuters\nSpread 0%\nFloating Leg 2\nPaying Party Synthetic Party A\nReceiving Party Synthetic Party B\nNotional Amount EUR 13,000,000\nNotional Currency EUR\nPayment Frequency 1Y\nRate Reset Interval semi-annual\nDay Count Fraction Actual/360\nBusiness Day Convention Following\nFinancial Centres TARGET\nFloating Rate Option EUR-EURIBOR-Reuters\nSpread 0 bps",
+  "answer": {
+   "structure": "float_float",
+   "fields": {
+    "trade_date": {
+     "value": "24-Feb-2005",
+     "line": 4,
+     "confidence": 0.95
+    },
+    "effective_date": {
+     "value": "2005-02-28",
+     "line": 5,
+     "confidence": 0.95
+    },
+    "termination_date": {
+     "value": "2010-03-01",
+     "line": 6,
+     "confidence": 0.95
+    },
+    "fixed_leg.payer": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.receiver": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.notional_amount": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.notional_currency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.payment_frequency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.reset_frequency": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.day_count_fraction": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.business_day_convention": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.business_centers": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "fixed_leg.fixed_rate": {
+     "value": null,
+     "line": null,
+     "confidence": 0.9
+    },
+    "floating_leg.payer": {
+     "value": "Synthetic Party B",
+     "line": 9,
+     "confidence": 0.95
+    },
+    "floating_leg.receiver": {
+     "value": "Synthetic Party A",
+     "line": 10,
+     "confidence": 0.95
+    },
+    "floating_leg.notional_amount": {
+     "value": "€13 million",
+     "line": 11,
+     "confidence": 0.95
+    },
+    "floating_leg.notional_currency": {
+     "value": "EUR",
+     "line": 12,
+     "confidence": 0.95
+    },
+    "floating_leg.payment_frequency": {
+     "value": "3M",
+     "line": 13,
+     "confidence": 0.95
+    },
+    "floating_leg.reset_frequency": {
+     "value": "quarterly",
+     "line": 14,
+     "confidence": 0.95
+    },
+    "floating_leg.day_count_fraction": {
+     "value": "ACT/360",
+     "line": 15,
+     "confidence": 0.95
+    },
+    "floating_leg.business_day_convention": {
+     "value": "Following",
+     "line": 16,
+     "confidence": 0.95
+    },
+    "floating_leg.business_centers": {
+     "value": "TARGET",
+     "line": 17,
+     "confidence": 0.95
+    },
+    "floating_leg.floating_rate_option": {
+     "value": "EUR-EURIBOR-Reuters",
+     "line": 18,
+     "confidence": 0.95
+    },
+    "floating_leg.spread": {
+     "value": "0%",
+     "line": 19,
+     "confidence": 0.95
+    },
+    "floating_leg_2.payer": {
+     "value": "Synthetic Party A",
+     "line": 21,
+     "confidence": 0.95
+    },
+    "floating_leg_2.receiver": {
+     "value": "Synthetic Party B",
+     "line": 22,
+     "confidence": 0.95
+    },
+    "floating_leg_2.notional_amount": {
+     "value": "EUR 13,000,000",
+     "line": 23,
+     "confidence": 0.95
+    },
+    "floating_leg_2.notional_currency": {
+     "value": "EUR",
+     "line": 24,
+     "confidence": 0.95
+    },
+    "floating_leg_2.payment_frequency": {
+     "value": "1Y",
+     "line": 25,
+     "confidence": 0.95
+    },
+    "floating_leg_2.reset_frequency": {
+     "value": "semi-annual",
+     "line": 26,
+     "confidence": 0.95
+    },
+    "floating_leg_2.day_count_fraction": {
+     "value": "Actual/360",
+     "line": 27,
+     "confidence": 0.95
+    },
+    "floating_leg_2.business_day_convention": {
+     "value": "Following",
+     "line": 28,
+     "confidence": 0.95
+    },
+    "floating_leg_2.business_centers": {
+     "value": "TARGET",
+     "line": 29,
+     "confidence": 0.95
+    },
+    "floating_leg_2.floating_rate_option": {
+     "value": "EUR-EURIBOR-Reuters",
+     "line": 30,
+     "confidence": 0.95
+    },
+    "floating_leg_2.spread": {
+     "value": "0 bps",
+     "line": 31,
+     "confidence": 0.95
+    },
+    "notice_address": {
+     "value": "Synthetic Party A, 1 Example Street, Example City",
+     "line": 7,
+     "confidence": 0.95
+    }
+   }
+  }
+ }
+]

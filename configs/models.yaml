@@ -1,0 +1,30 @@
+# Extraction models (Step 10). Pin name, version and access_date before any run;
+# the runner refuses PIN-ME values. Credentials live only in environment variables.
+#
+# Both tracks use the OpenAI-compatible chat API:
+#   frontier      - OpenAI, Gemini (base URL https://generativelanguage.googleapis.com/v1beta/openai/)
+#                   or Vertex AI's OpenAI-compatible endpoint. Public and synthetic documents only.
+#                   Turn on zero data retention in the provider account; for OpenAI also send store=false.
+#   open_weights  - vLLM server (e.g. on Kaggle): vllm serve Qwen/Qwen2.5-7B-Instruct-AWQ
+#                   then set OPEN_WEIGHTS_BASE_URL=http://<host>:8000/v1 and OPEN_WEIGHTS_API_KEY=<any>.
+models:
+  frontier:
+    name: PIN-ME                 # e.g. gemini-2.5-flash or gpt-4.1-mini
+    version: PIN-ME              # dated snapshot / model version string
+    access_date: PIN-ME          # YYYY-MM-DD
+    base_url_env: FRONTIER_BASE_URL   # unset -> provider default (OpenAI)
+    api_key_env: FRONTIER_API_KEY
+    structured: json_schema
+    logprobs: false              # set true where the provider returns token log-probs
+    max_tokens: 4096
+    extra_body: {}               # OpenAI: {store: false}
+  open_weights:
+    name: Qwen/Qwen2.5-7B-Instruct-AWQ
+    version: PIN-ME              # Hugging Face revision (commit hash)
+    access_date: PIN-ME
+    base_url_env: OPEN_WEIGHTS_BASE_URL
+    api_key_env: OPEN_WEIGHTS_API_KEY
+    structured: guided_json      # or json_schema on recent vLLM
+    logprobs: true
+    max_tokens: 4096
+    extra_body: {}
