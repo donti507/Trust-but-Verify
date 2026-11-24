@@ -20,12 +20,13 @@ models:
     send_seed: true
     extra_body: {}               # OpenAI: {store: false}
   open_weights:
-    name: Qwen/Qwen2.5-7B-Instruct-AWQ
-    version: PIN-ME              # Hugging Face revision (commit hash)
-    access_date: PIN-ME
+    name: "Qwen3.8-27B"
+    version: "Qwen/Qwen3.8-27B-FP8"
+    access_date: "2026-11-24"
     base_url_env: OPEN_WEIGHTS_BASE_URL
     api_key_env: OPEN_WEIGHTS_API_KEY
-    structured: guided_json      # or json_schema on recent vLLM
+    structured: "json_schema"
     logprobs: true
     max_tokens: 4096
-    extra_body: {}
+    extra_body: {chat_template_kwargs: {enable_thinking: false}}
+    send_seed: true
