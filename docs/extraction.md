@@ -30,3 +30,16 @@
 
 Step 10 check: `python scripts/extract.py --model frontier --docs data/synthetic/docs.jsonl --limit 10`
 and the same with `--model open_weights` must both print `schema-valid: 10/10 = 100.0%`.
+
+## Pinning a model (`scripts/pin_model.py`)
+
+The tool probes an OpenAI-compatible endpoint (seed, JSON-schema mode, vLLM
+`guided_json`, plain JSON mode, log-probs) and writes the strongest working
+settings for one track into `configs/models.yaml`, keeping comments:
+
+    python scripts/pin_model.py --track frontier --name DeepSeek-V4.1-Flash \
+        --version deepseek-ai/DeepSeek-V4.1-Flash-1017
+
+Both tracks may point at the PCSS AI Hub (`https://llm.hpc.psnc.pl/v1`), an
+OpenAI-compatible service for open-weight models. In `json_object` mode the
+schema is not enforced by the server; the parser still validates every output.
