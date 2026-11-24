@@ -188,8 +188,10 @@ def test_models_config_loads_and_refuses_unpinned_models():
     models = C.load_models()
     assert set(models) == {"frontier", "open_weights"}
     assert models["open_weights"].structured == "guided_json" and models["open_weights"].logprobs
+    unpinned = C.ModelSpec(key="x", name="m", version="PIN-ME", access_date="PIN-ME",
+                           base_url_env=None, api_key_env="X_KEY")
     with pytest.raises(ValueError):
-        models["frontier"].check_pinned()
+        unpinned.check_pinned()
     pinned = C.ModelSpec(key="x", name="m", version="2026-11-01", access_date="2026-11-24",
                          base_url_env=None, api_key_env="X_KEY")
     pinned.check_pinned()
