@@ -18,3 +18,9 @@ the domain-lead cost session sets `status: confirmed`.
 `results/decision_<model>.md` and a decision log
 `results/<run_id>/decisions.jsonl` (doc_id, field, value, p_hat, c_bar, lambda,
 action, rules fired, evidence span) used by the demo.
+
+## Step 17 gate: Track B fine-tune skipped
+Decision (2026-11-26): Track B (LoRA fine-tune of the open-weights model) is not run.
+Reason: the base open-weights model is 100% schema-valid with ~2% field errors on
+synthetic data (Step 12-13), so the expected gain is small; the GPU cost and time
+put the main study at risk; Track B is an optional ablation only. Listed as future work.
