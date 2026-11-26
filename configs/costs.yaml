@@ -1,0 +1,18 @@
+# Cost matrix for the decision rule (Step 15).
+# PLACEHOLDER values until the domain-lead cost session: severities from the runbook field
+# table with ratios critical 100, major 10, minor 0.2 and review cost 1.
+# low / likely / high = cost of ACCEPTING a wrong value; likely is the expected severity c_bar.
+# r = cost of sending the field to a human reviewer. B bounds the loss of one document.
+status: placeholder          # set to "confirmed" after the domain-lead session
+confirmed_by: null
+B: 100.0
+severity:
+  critical: {low: 50.0, likely: 100.0, high: 200.0}
+  major:    {low: 5.0,  likely: 10.0,  high: 20.0}
+  minor:    {low: 0.1,  likely: 0.2,   high: 0.4}
+review_cost:
+  default: 1.0
+# Optional per-field overrides by field name, e.g.
+# fields:
+#   notice_address: {likely: 0.5, r: 0.5}
+fields: {}
