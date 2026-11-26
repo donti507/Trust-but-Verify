@@ -560,8 +560,55 @@ tbody tr:hover {
   overflow-wrap: anywhere;
   padding: clamp(0.9rem, 3vw, 2.1rem);
   font:
-    1rem/1.75 Georgia,
+    300 0.95rem/1.8 Merriweather,
+    Georgia,
     serif;
+}
+.document-panel .document {
+  /* Paper sheet: the text sits on a white page with a soft shadow. */
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    #eef2fa;
+  border: clamp(0.5rem, 2vw, 1.3rem) solid #eef2fa;
+  box-shadow: inset 0 0 0 1px #dfe6f3;
+  padding: clamp(1rem, 3.5vw, 2.6rem) clamp(1rem, 4vw, 3rem);
+}
+.callout {
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #f3c2bf;
+  border-left: 4px solid var(--red);
+  border-radius: 0.5rem;
+  background: #fdf1f0;
+  color: #5c1512;
+  font:
+    0.86rem/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+.callout strong {
+  display: block;
+  margin: 0.15rem 0;
+  color: var(--red);
+}
+.callout-tag {
+  float: right;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.3rem;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.callout.selected {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 .mark {
   display: inline;
@@ -1302,6 +1349,35 @@ function decision(p, c_bar, r, lambda) {
     });
     const positions = Array.from(bounds).sort((a, b) => a - b);
     const fragment = document.createDocumentFragment();
+    // Fields sent to review get a callout box after the line that holds them.
+    const pending = [];
+    const flagged = new Set();
+    function callout(index) {
+      const field = record.fields[index];
+      const box = element("button", "", "callout");
+      box.type = "button";
+      const reason = field.rules_fired.length
+        ? field.rules_fired.map((rule) => data.rules[rule]).join(" ")
+        : "High estimated error risk for a " + field.severity + " field.";
+      box.append(
+        element("span", "Sent to review", "callout-tag"),
+        element("strong", field.name),
+        element("span", reason + " Risk " + pct(field.p) + "."),
+      );
+      if (selected === index) box.classList.add("selected");
+      box.addEventListener("click", () => chooseField(index, false));
+      return box;
+    }
+    function plain(text) {
+      const cut = pending.length ? text.indexOf("\n") : -1;
+      if (cut < 0) {
+        fragment.appendChild(document.createTextNode(text));
+        return;
+      }
+      fragment.appendChild(document.createTextNode(text.slice(0, cut + 1)));
+      pending.splice(0).forEach((index) => fragment.appendChild(callout(index)));
+      fragment.appendChild(document.createTextNode(text.slice(cut + 1)));
+    }
     for (let i = 1; i < positions.length; i++) {
       const start = positions[i - 1];
       const end = positions[i];
@@ -1311,8 +1387,14 @@ function decision(p, c_bar, r, lambda) {
         if (field.span && field.span[0] <= start && end <= field.span[1])
           matches.push(index);
       });
+      matches.forEach((index) => {
+        if (decisions[index] === "Review" && !flagged.has(index)) {
+          flagged.add(index);
+          pending.push(index);
+        }
+      });
       if (!matches.length) {
-        fragment.appendChild(document.createTextNode(text));
+        plain(text);
         continue;
       }
       // For overlapping spans, show the selected field or prefer a review highlight.
@@ -1334,6 +1416,7 @@ function decision(p, c_bar, r, lambda) {
       mark.addEventListener("click", () => chooseField(index, false));
       fragment.appendChild(mark);
     }
+    pending.splice(0).forEach((index) => fragment.appendChild(callout(index)));
     byId("document-text").replaceChildren(fragment);
   }
 
@@ -1566,7 +1649,9 @@ function decision(p, c_bar, r, lambda) {
       stats.total - stats.accepted + " fields flagged for review";
     byId("caught").textContent =
       stats.caught + " of " + errors + " known errors sent to review";
-    byId("missed").textContent = stats.missed + " known errors slipped through";
+    byId("missed").textContent =
+      stats.missed +
+      (stats.missed === 1 ? " known error slipped through" : " known errors slipped through");
     byId("policy-auto").textContent = pct(stats.automation);
     byId("policy-estimated").textContent = lossPct(stats.estimated);
     drawChart();
@@ -1698,7 +1783,7 @@ function decision(p, c_bar, r, lambda) {
       (row.total - row.accepted) +
       " pending policy review · " +
       row.caught +
-      " known errors caught";
+      (row.caught === 1 ? " known error caught" : " known errors caught");
     byId("previous").disabled = position <= 0;
     byId("next").disabled = position >= docs.length - 1;
     const summary = byId("trade-summary");
@@ -1851,9 +1936,18 @@ function decision(p, c_bar, r, lambda) {
       [2, pct(field.p) + " estimated error risk"],
       [
         3,
-        "Estimated error cost " +
+        "Risk × cost if wrong = " +
+          number(field.p) +
+          " × " +
+          number(field.c_bar) +
+          " = " +
           number(field.p * field.c_bar) +
-          " · review threshold " +
+          (action === "Review" ? " > " : " ≤ ") +
+          "λ × review cost = " +
+          number(lambda()) +
+          " × " +
+          number(field.r) +
+          " = " +
           number(lambda() * field.r),
       ],
       [4, "Policy outcome: " + action],
