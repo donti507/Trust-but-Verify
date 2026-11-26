@@ -139,3 +139,26 @@ def test_browser_decision_mirror_matches_policy(lam):
     assert [build_demo.decision(*case, lam) for case in cases] == [
         "Review" if flag else "Accept" for flag in expected
     ]
+
+
+def test_stitch_views_and_chart_share_the_offline_data(tmp_path):
+    from bs4 import BeautifulSoup
+
+    data, cache = _write_inputs(tmp_path)
+    costs = load_costs()
+    documents = build_demo.load_documents(data, cache, "open_weights", costs, 2)
+    html = build_demo.render_page(documents, 125.0, illustrative=True)
+    page = BeautifulSoup(html, "html.parser")
+
+    assert {view["id"] for view in page.select("[data-view]")} == {
+        "overview", "confirmations", "method", "audit",
+    }
+    assert {link["href"][1:] for link in page.select("[data-nav]")} == {
+        view["id"] for view in page.select("[data-view]")
+    }
+    assert page.select_one("svg#frontier")["viewbox"]
+    assert page.select_one("#document-text") and page.select_one("#stages")
+    payload = json.loads(page.select_one("#demo-data").get_text())
+    assert payload["bound"] == 125.0
+    assert payload["illustrative"] is True
+    assert "__DEMO_" not in html
