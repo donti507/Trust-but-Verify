@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Trust but Verify</title>
+    <style>
+      __DEMO_CSS__
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#overview"
+        ><span class="brand-icon" aria-hidden="true">✓</span>Trust but Verify</a
+      >
+      <span class="pill blue">Synthetic document, fictional parties</span>
+      <span class="pill review" id="sample-label" hidden
+        >Illustrative predictions</span
+      >
+      <nav aria-label="Main navigation">
+        <a href="#overview" data-nav="overview">Overview</a
+        ><a href="#confirmations" data-nav="confirmations">Confirmations</a>
+        <a href="#method" data-nav="method">How it works</a
+        ><a href="#audit" data-nav="audit">Audit &amp; Governance</a>
+      </nav>
+      <label class="search"
+        ><span aria-hidden="true">⌕</span
+        ><input
+          id="search"
+          type="search"
+          aria-label="Search by trade ID or document text"
+          placeholder="Trade ID or counterparty…"
+      /></label>
+    </header>
+    <main>
+      <section id="overview" data-view>
+        <header class="hero panel">
+          <div>
+            <span class="eyebrow">Operational dashboard</span>
+            <h1>Operations overview</h1>
+            <p>
+              Inspect extracted swap terms, verifier findings, and the decisions
+              that send fields to a person.
+            </p>
+            <label class="cohort-label"
+              >Collection
+              <select id="collection" aria-label="Document collection"></select
+            ></label>
+          </div>
+          <div class="actions">
+            <button id="export-overview" type="button">
+              Export audit report</button
+            ><a class="button primary" href="#confirmations"
+              >Open confirmation</a
+            >
+          </div>
+        </header>
+        <div class="metrics" aria-label="Decision summary">
+          <article class="panel metric">
+            <span class="metric-icon" aria-hidden="true">▦</span>
+            <h2>Fields automated</h2>
+            <strong id="auto-rate">—</strong>
+            <p id="automated"></p>
+          </article>
+          <article class="panel metric">
+            <span class="metric-icon" aria-hidden="true">♧</span>
+            <h2>Sent to a person</h2>
+            <strong id="review-rate">—</strong>
+            <p id="reviewed"></p>
+          </article>
+          <article class="panel metric">
+            <span class="metric-icon" aria-hidden="true">✓</span>
+            <h2>Errors caught in review</h2>
+            <strong id="caught-rate">—</strong>
+            <p id="caught"></p>
+          </article>
+          <article class="panel metric">
+            <span class="metric-icon green" aria-hidden="true">◇</span>
+            <h2>Observed document loss</h2>
+            <strong id="loss-rate">—</strong>
+            <p id="missed"></p>
+          </article>
+        </div>
+        <section class="panel tradeoff">
+          <div>
+            <h2>
+              <span class="accent" aria-hidden="true">☷</span> Risk appetite
+              control
+            </h2>
+            <p>Move right to accept more fields.</p>
+            <div class="inset controls">
+              <div class="range-head">
+                <label for="appetite">Risk appetite</label
+                ><output id="threshold" for="appetite"></output>
+              </div>
+              <input
+                id="appetite"
+                type="range"
+                min="0"
+                max="61"
+                step="1"
+                value="31"
+              />
+              <div class="range-labels">
+                <span>More conservative</span><span>Automate more</span>
+              </div>
+              <dl class="summary">
+                <div>
+                  <dt>Fields automated</dt>
+                  <dd id="policy-auto"></dd>
+                </div>
+                <div>
+                  <dt>Mean estimated loss</dt>
+                  <dd id="policy-estimated"></dd>
+                </div>
+                <div>
+                  <dt><label for="budget">Illustrative loss budget</label></dt>
+                  <dd>
+                    <input
+                      id="budget"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value="1"
+                    />
+                    %
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <p class="notice">
+              The budget is a comparison line for this demo. A risk guarantee
+              requires a separate conformal calibration.
+            </p>
+          </div>
+          <div class="chart-side">
+            <div class="section-top">
+              <div>
+                <h2>Automation vs. risk curve</h2>
+                <p>
+                  Replay the policy using known errors or the sum of estimated
+                  field costs, capped per document.
+                </p>
+              </div>
+              <label class="sr-only" for="loss-kind">Loss shown on chart</label
+              ><select id="loss-kind">
+                <option value="observed">Observed loss</option>
+                <option value="estimated">Estimated loss</option>
+              </select>
+            </div>
+            <div class="inset chart-box">
+              <svg
+                id="frontier"
+                viewBox="0 0 620 255"
+                role="img"
+                aria-labelledby="frontier-title"
+              >
+                <title id="frontier-title">
+                  Automation and loss by risk threshold
+                </title>
+              </svg>
+              <p id="chart-status" aria-live="polite"></p>
+            </div>
+            <div class="chart-caption">
+              <span>Share of fields automated</span
+              ><span>Mean normalized document loss</span>
+            </div>
+          </div>
+        </section>
+        <section class="panel queue" aria-labelledby="queue-title">
+          <div class="queue-head">
+            <h2 id="queue-title">Confirmation queue</h2>
+            <div class="filters" aria-label="Queue filter">
+              <button data-filter="all" type="button">All <span></span></button
+              ><button data-filter="review" type="button">
+                Needs human review <span></span></button
+              ><button data-filter="straight" type="button">
+                Straight-through <span></span></button
+              ><button data-filter="exceptions" type="button">
+                Exceptions <span></span>
+              </button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trade ID</th>
+                  <th>Case type</th>
+                  <th>Extracted notional</th>
+                  <th>Status</th>
+                  <th>Automation progress</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="queue"></tbody>
+            </table>
+          </div>
+          <div class="queue-foot">
+            <span id="queue-count"></span>
+            <div class="actions">
+              <button id="queue-prev" type="button">Previous</button
+              ><button id="queue-next" type="button">Next</button>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section id="confirmations" data-view hidden>
+        <div class="review-nav">
+          <div class="actions">
+            <label for="document-picker">Confirmations</label
+            ><select id="document-picker"></select
+            ><span id="review-status" class="pill"></span>
+          </div>
+          <div class="actions">
+            <button id="download" type="button">Download source text</button
+            ><a class="button" href="#audit">View audit trail</a>
+          </div>
+        </div>
+        <div class="trade-summary" id="trade-summary"></div>
+        <div class="workspace">
+          <section
+            class="panel document-panel"
+            aria-labelledby="document-title"
+          >
+            <div class="panel-heading">
+              <h2 id="document-title">Swap confirmation source</h2>
+              <span class="pill blue">Synthetic</span>
+            </div>
+            <pre class="document" id="document-text" tabindex="0"></pre>
+            <div class="queue-foot">
+              <span id="document-position"></span>
+              <div class="actions">
+                <button id="previous" type="button">Previous</button
+                ><button id="next" type="button">Next</button>
+              </div>
+            </div>
+          </section>
+          <section aria-labelledby="fields-title">
+            <div class="detail panel" id="explanation" aria-live="polite"></div>
+            <h2 id="fields-title" class="sr-only">Extracted fields</h2>
+            <div id="fields"></div>
+          </section>
+        </div>
+        <div class="review-footer panel">
+          <div id="cleared"></div>
+          <a class="button" href="#overview">Back to queue</a>
+        </div>
+      </section>
+      <section id="method" data-view hidden>
+        <header class="method-hero">
+          <div>
+            <span class="eyebrow">System architecture &amp; methodology</span>
+            <h1>How Trust but Verify safeguards trade confirmations</h1>
+            <p>
+              Read the confirmation, check its terms, score field risk, and
+              route uncertain decisions for review.
+            </p>
+          </div>
+          <ul class="panel method-points">
+            <li>Source evidence for extracted fields</li>
+            <li>Cost-aware decisions</li>
+            <li>Documented review trail</li>
+          </ul>
+        </header>
+        <section>
+          <div class="section-top">
+            <h2>The verification architecture</h2>
+            <span class="muted">Select a stage to inspect it</span>
+          </div>
+          <div class="stages" id="stages"></div>
+        </section>
+        <section class="panel journey">
+          <div class="section-top">
+            <div>
+              <span class="eyebrow">Document decision trace</span>
+              <h2 id="journey-title"></h2>
+            </div>
+            <span class="pill" id="journey-state"></span>
+          </div>
+          <div class="trace" id="trace"></div>
+          <p class="notice" id="stage-detail"></p>
+        </section>
+        <section>
+          <span class="eyebrow">Operational outcomes</span>
+          <h2>What the controls measure</h2>
+          <div class="value-grid" id="method-metrics"></div>
+        </section>
+        <section class="panel assurance">
+          <div class="section-top">
+            <h2>Operational states &amp; assurance</h2>
+            <div class="actions">
+              <button type="button" data-assurance="flow">
+                Review workflow</button
+              ><button type="button" data-assurance="audit">Audit trail</button>
+            </div>
+          </div>
+          <div id="assurance"></div>
+        </section>
+        <section class="cta">
+          <div>
+            <h2>Inspect the verification queue</h2>
+            <p>Follow a discrepancy from the source to its review decision.</p>
+          </div>
+          <a class="button" href="#confirmations">Explore confirmations</a>
+        </section>
+      </section>
+      <section id="audit" data-view hidden>
+        <header class="hero panel">
+          <div>
+            <span class="eyebrow">Audit &amp; governance</span>
+            <h1>Decision audit</h1>
+            <p>
+              Review policy decisions and session annotations for the selected
+              document collection.
+            </p>
+          </div>
+          <button id="export-audit" class="primary" type="button">
+            Download audit CSV
+          </button>
+        </header>
+        <section class="panel queue">
+          <div class="queue-head">
+            <h2>Decision records</h2>
+            <span class="pill blue" id="audit-count"></span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trade ID</th>
+                  <th>Field</th>
+                  <th>Policy decision</th>
+                  <th>Verifier warnings</th>
+                  <th>Reviewer annotation</th>
+                </tr>
+              </thead>
+              <tbody id="audit-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+    <footer>
+      <span>Trust but Verify · Synthetic demonstration</span
+      ><span>Cached evidence and local policy replay</span>
+    </footer>
+    <script type="application/json" id="demo-data">
+      __DEMO_DATA__
+    </script>
+    <script>
+      __DEMO_JS__;
+    </script>
+  </body>
+</html>
