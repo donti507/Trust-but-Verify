@@ -20,13 +20,13 @@ models:
     send_seed: true
     extra_body: {}               # OpenAI: {store: false}
   open_weights:
-    name: "Qwen3.8-27B"
-    version: "Qwen/Qwen3.8-27B-FP8"
+    name: "Qwen/Qwen2.5-7B-Instruct-AWQ"
+    version: "Qwen/Qwen2.5-7B-Instruct-AWQ@b25037543e9394b818fdfca67ab2a00ecc7dd641"
     access_date: "2026-11-24"
     base_url_env: OPEN_WEIGHTS_BASE_URL
     api_key_env: OPEN_WEIGHTS_API_KEY
     structured: "json_schema"
     logprobs: true
     max_tokens: 4096
-    extra_body: {chat_template_kwargs: {enable_thinking: false}}
+    extra_body: {}
     send_seed: true
