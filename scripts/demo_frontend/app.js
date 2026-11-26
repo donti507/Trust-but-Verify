@@ -4,7 +4,68 @@ function decision(p, c_bar, r, lambda) {
   return p * c_bar > lambda * r ? "Review" : "Accept";
 }
 
+const lambdaFor = (step) => (step === 0 ? 0 : 10 ** ((step - 31) / 10));
+const pct = (value) =>
+  (100 * value).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "%";
+const lossPct = (value) =>
+  (100 * value).toLocaleString(undefined, { maximumFractionDigits: 2 }) + "%";
+function facts(record, threshold, bound) {
+  let accepted = 0,
+    caught = 0,
+    missed = 0,
+    actual = 0,
+    estimated = 0;
+  for (const field of record.fields) {
+    if (decision(field.p, field.c_bar, field.r, threshold) === "Review") {
+      caught += field.e;
+    } else {
+      accepted++;
+      missed += field.e;
+      actual += field.e * field.c_bar;
+      estimated += field.p * field.c_bar;
+    }
+  }
+  return {
+    record,
+    accepted,
+    total: record.fields.length,
+    reviewed: record.fields.length - accepted,
+    caught,
+    missed,
+    observed: Math.min(actual, bound) / bound,
+    estimated: Math.min(estimated, bound) / bound,
+  };
+}
+
+function aggregate(rows) {
+  const sums = {
+    accepted: 0,
+    total: 0,
+    caught: 0,
+    missed: 0,
+    observed: 0,
+    estimated: 0,
+  };
+  for (const row of rows) for (const name in sums) sums[name] += row[name];
+  return {
+    ...sums,
+    automation: sums.accepted / sums.total,
+    observed: sums.observed / rows.length,
+    estimated: sums.estimated / rows.length,
+  };
+}
+
+function buildCurve(documents, bound) {
+  return Array.from({ length: 62 }, (_, step) =>
+    aggregate(documents.map((doc) => facts(doc, lambdaFor(step), bound))),
+  );
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { decision, facts, aggregate, lambdaFor, buildCurve, pct };
+}
 (function () {
+  if (typeof document === "undefined") return;
   const byId = (id) => document.getElementById(id);
   const data = JSON.parse(byId("demo-data").textContent);
   if (data.illustrative) byId("sample-label").hidden = false;
@@ -12,16 +73,12 @@ function decision(p, c_bar, r, lambda) {
   const slider = byId("appetite");
   const collection = byId("collection");
   const annotations = new Map();
+  const auditEvents = [];
   const pageSize = 5;
   const key = (record, index) => JSON.stringify([record.id, index]);
   const cohort = (record) =>
     record.category === "Adversarial" ? "Adversarial" : "Synthetic";
-  const lambdaFor = (step) => (step === 0 ? 0 : 10 ** ((step - 31) / 10));
   const lambda = () => lambdaFor(Number(slider.value));
-  const pct = (value) =>
-    (100 * value).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "%";
-  const lossPct = (value) =>
-    (100 * value).toLocaleString(undefined, { maximumFractionDigits: 2 }) + "%";
   const number = (value) => Number(value.toPrecision(4)).toString();
   const valueText = (value) =>
     value == null
@@ -61,60 +118,12 @@ function decision(p, c_bar, r, lambda) {
     return decision(field.p, field.c_bar, field.r, threshold);
   }
 
-  function facts(record, threshold) {
-    let accepted = 0,
-      caught = 0,
-      missed = 0,
-      actual = 0,
-      estimated = 0;
-    for (const field of record.fields) {
-      if (fieldDecision(field, threshold) === "Review") {
-        caught += field.e;
-      } else {
-        accepted++;
-        missed += field.e;
-        actual += field.e * field.c_bar;
-        estimated += field.p * field.c_bar;
-      }
-    }
-    return {
-      record,
-      accepted,
-      total: record.fields.length,
-      caught,
-      missed,
-      observed: Math.min(actual, data.bound) / data.bound,
-      estimated: Math.min(estimated, data.bound) / data.bound,
-    };
-  }
-
-  function aggregate(rows) {
-    const sums = {
-      accepted: 0,
-      total: 0,
-      caught: 0,
-      missed: 0,
-      observed: 0,
-      estimated: 0,
-    };
-    for (const row of rows) for (const name in sums) sums[name] += row[name];
-    return {
-      ...sums,
-      automation: sums.accepted / sums.total,
-      observed: sums.observed / rows.length,
-      estimated: sums.estimated / rows.length,
-    };
-  }
-
   function docFacts() {
-    return records().map((record) => facts(record, lambda()));
+    return records().map((record) => facts(record, lambda(), data.bound));
   }
 
   function rebuildCurve() {
-    const docs = records();
-    curve = Array.from({ length: 62 }, (_, step) =>
-      aggregate(docs.map((doc) => facts(doc, lambdaFor(step)))),
-    );
+    curve = buildCurve(records(), data.bound);
   }
 
   function renderText(record, decisions) {
@@ -159,6 +168,19 @@ function decision(p, c_bar, r, lambda) {
       fragment.appendChild(mark);
     }
     byId("document-text").replaceChildren(fragment);
+    const callouts = byId("source-callouts");
+    callouts.replaceChildren();
+    record.fields.forEach((field, index) => {
+      if (decisions[index] !== "Review") return;
+      const item = element("li", "", "source-callout");
+      item.append(
+        element("strong", "Sent to review"),
+        button(field.name, () => chooseField(index), "table-link"),
+      );
+      if (!field.span) item.append(element("span", "No source span"));
+      callouts.append(item);
+    });
+    callouts.hidden = !callouts.childElementCount;
   }
 
   function drawChart() {
@@ -478,10 +500,19 @@ function decision(p, c_bar, r, lambda) {
         corrected.focus();
         return;
       }
-      annotations.set(key(selectedDoc, selected), {
+      const annotation = {
         action: name,
         note: note.value.trim(),
         corrected: name === "Correction" ? corrected.value.trim() : "",
+      };
+      annotations.set(key(selectedDoc, selected), annotation);
+      auditEvents.push({
+        trade_id: selectedDoc.id,
+        collection: cohort(selectedDoc),
+        field: field.field,
+        lambda: lambda(),
+        policy_decision: action,
+        ...annotation,
       });
       feedback.textContent = name + " recorded in this session.";
     }
@@ -503,7 +534,7 @@ function decision(p, c_bar, r, lambda) {
     const record = selectedDoc;
     const docs = records();
     const position = docs.indexOf(record);
-    const row = facts(record, lambda());
+    const row = facts(record, lambda(), data.bound);
     const decisions = record.fields.map((field) => fieldDecision(field));
     if (selected < 0) {
       selected = decisions.indexOf("Review");
@@ -658,6 +689,10 @@ function decision(p, c_bar, r, lambda) {
       record.fields.find((field) => fieldDecision(field) === "Review") ??
       record.fields[0];
     const action = fieldDecision(field);
+    const errorCost = field.p * field.c_bar;
+    const reviewCost = lambda() * field.r;
+    const comparison =
+      errorCost > reviewCost ? ">" : errorCost < reviewCost ? "<" : "=";
     byId("journey-title").textContent = "One field’s journey: " + field.name;
     byId("journey-state").textContent =
       action === "Review" ? "Escalation example" : "Acceptance example";
@@ -675,10 +710,21 @@ function decision(p, c_bar, r, lambda) {
       [2, pct(field.p) + " estimated error risk"],
       [
         3,
-        "Estimated error cost " +
-          number(field.p * field.c_bar) +
-          " · review threshold " +
-          number(lambda() * field.r),
+        "p × cost (" +
+          field.p +
+          " × " +
+          field.c_bar +
+          " = " +
+          errorCost +
+          ") " +
+          comparison +
+          " λ × review cost (" +
+          lambda() +
+          " × " +
+          field.r +
+          " = " +
+          reviewCost +
+          ")",
       ],
       [4, "Policy outcome: " + action],
     ]) {
@@ -848,6 +894,37 @@ function decision(p, c_bar, r, lambda) {
     );
   }
 
+  function exportAuditReport() {
+    const rows = auditRecords().map(
+      ({ record, field, action, annotation }) => ({
+        trade_id: record.id,
+        case_type: record.category,
+        field: field.name,
+        value: field.value,
+        p: field.p,
+        c_bar: field.c_bar,
+        r: field.r,
+        action,
+        rules_fired: field.rules_fired,
+        known_error: field.e,
+        annotation: annotation ?? null,
+      }),
+    );
+    const report = {
+      collection: collection.value,
+      lambda: lambda(),
+      records: rows,
+      annotations: auditEvents.filter(
+        (event) => event.collection === collection.value,
+      ),
+    };
+    download(
+      JSON.stringify(report, null, 2),
+      "trust-but-verify-audit.json",
+      "application/json",
+    );
+  }
+
   const views = {
     overview: renderOverview,
     confirmations: renderReview,
@@ -938,7 +1015,7 @@ function decision(p, c_bar, r, lambda) {
       "text/plain;charset=utf-8",
     ),
   );
-  byId("export-overview").addEventListener("click", exportAudit);
+  byId("export-overview").addEventListener("click", exportAuditReport);
   byId("export-audit").addEventListener("click", exportAudit);
   window.addEventListener("hashchange", route);
   route();
