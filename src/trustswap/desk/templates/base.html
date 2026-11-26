@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Desk{% endblock %} · Trust but Verify</title>
+<style>
+:root { font: 15px/1.5 system-ui,sans-serif; color:#0d1c2f; background:#f4f6fc }
+* { box-sizing:border-box } body { margin:0 } h1,h2,h3,p { margin:0 0 .6rem }
+header { background:white; border-bottom:1px solid #dce5f4; padding:.8rem max(1rem,calc((100% - 1200px)/2)); display:flex; flex-wrap:wrap; align-items:center; gap:1rem }
+.brand { font-weight:800; white-space:nowrap } nav { display:flex; flex-wrap:wrap; gap:.65rem; flex:1 } nav a { text-decoration:none; padding:.35rem; color:#004ac6 }
+main { max-width:1200px; margin:auto; display:grid; gap:1rem; padding:1.4rem 1rem }
+.panel,.hero { background:white; padding:1rem; border:1px solid #e2e9f6; border-radius:.7rem }
+.hero { background:linear-gradient(110deg,#fff 62%,#eff4ff) }
+.tag { color:#004ac6; background:#e6eeff; border-radius:1rem; padding:.2rem .55rem; font-size:.82rem; font-weight:700 }
+.review { color:#842926; background:#feece9 } .ok { color:#006243; background:#e6f8ef }
+label { display:block; font-weight:650; margin-top:.45rem }
+input,textarea,button { font:inherit; color:inherit } input,textarea { border:1px solid #bdcbea; border-radius:.35rem; padding:.35rem .5rem; max-width:100% }
+textarea { width:100%; min-height:3.5rem }
+button,.button { border:0; border-radius:.35rem; background:#2563eb; padding:.45rem .72rem; color:white; text-decoration:none; cursor:pointer; display:inline-block }
+button.secondary { background:#e6eeff; color:#132c52 }
+a { color:#004ac6 } button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid #004ac6; outline-offset:2px }
+.responsive-table { overflow:auto } table { border-collapse:collapse; width:100%; text-align:left }
+th,td { padding:.65rem .7rem; border-bottom:1px solid #e7edf7; vertical-align:top } thead { background:#edf2ff }
+.cards { display:grid; gap:1rem; grid-template-columns:repeat(2,minmax(0,1fr)) }
+.cards .panel { min-width:0; overflow-wrap:anywhere } .comparison { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:.7rem 0 }
+.comparison div { background:#eff4ff; padding:.65rem; border-radius:.4rem }
+.reasons { margin:.45rem 0; padding:.4rem .6rem; border-left:3px solid #ba1a1a; background:#fff0ed }
+.actions { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.55rem }
+pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:32rem; overflow:auto }
+.login { max-width:420px; width:100%; margin:auto }
+@media(max-width:720px) { .cards { grid-template-columns:1fr } }
+</style></head>
+<body>
+<header><span class="brand">Trust but Verify</span><span class="tag">Synthetic demo</span>
+{% if g.user %}<nav aria-label="Desk navigation"><a href="{{ url_for('overview') }}">Overview</a>
+{% if g.user.role == 'supervisor' %}<a href="{{ url_for('approvals') }}">Approvals</a>{% endif %}
+{% if g.user.role == 'auditor' %}<a href="{{ url_for('audit_log') }}">Audit log</a>{% endif %}</nav>
+<span>{{ g.user.name }} · {{ g.user.role }}</span>
+<form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Sign out</button></form>
+{% endif %}</header>
+<main>{% block content %}{% endblock %}</main>
+</body></html>

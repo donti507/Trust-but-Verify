@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Review {{ trade.id }}{% endblock %}
+{% block content %}
+<section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ trade.state }}</p>
+<p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p></section>
+<section class="cards" aria-label="Field comparison">
+{% for field in fields %}
+<article class="panel"><h2>{{ field.path }}</h2>
+<span class="tag {{ 'review' if field.risk or field.match != 'MATCH' else 'ok' }}">{{ 'Flagged' if field.risk or field.match != 'MATCH' else 'Matched' }}</span>
+<span class="tag">{{ field.state }}</span>
+<div class="comparison"><div><strong>Confirmation</strong><br>{{ field.confirmation if field.confirmation is not none else 'Missing' }}</div>
+<div><strong>Booking</strong><br>{{ field.booking if field.booking is not none else 'Missing' }}</div></div>
+{% if field.risk or field.match != 'MATCH' %}
+<p class="reasons">{% if field.risk %}Risk policy: Review ({{ '%.1f'|format(100 * field.p) }}% risk). {% endif %}
+{% if field.match != 'MATCH' %}Booking comparison: {{ field.match }}.{% endif %}</p>
+{% endif %}
+{% if field.reason %}<p>Supervisor reason: {{ field.reason }}</p>{% endif %}
+{% if field.state == 'pending' %}<p>Awaiting approval. {{ field.note }}</p>{% endif %}
+{% if g.user.role == 'analyst' and field.state in ('open','rejected') %}
+<form method="post" action="{{ url_for('review_field',trade_id=trade.id,field=field.path) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Proposed booking value <input name="value"></label>
+<label>Reviewer note <textarea name="note"></textarea></label>
+<div class="actions"><button name="action" value="accept" class="secondary">Accept field</button><button name="action" value="propose">Propose correction</button></div>
+</form>
+{% endif %}</article>
+{% endfor %}</section>
+{% if trade.source %}<details class="panel"><summary>Confirmation source text</summary><pre>{{ trade.source }}</pre></details>{% endif %}
+{% endblock %}
