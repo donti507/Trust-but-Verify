@@ -21,3 +21,19 @@ columns (`doc_id, field, model, collection, split, defect, is_control, k_samples
 are for splitting and reporting, never features. Collections stay separate:
 risk models train on synthetic `train`, tune on `dev`, and report `syn_test` and
 `adv_test` apart (Step 14).
+
+# Risk models (Step 14)
+
+`python scripts/train_risk.py --model <frontier|open_weights>` fits four calibrated
+models of P(e = 1): {base, full} x {L2 logistic, LightGBM}. base uses the u, g, tau
+and q columns (the uncertainty-only comparator for H1); full adds the verifier
+columns v and rho. Models are fitted on synthetic train; hyperparameters (logistic C;
+LightGBM leaves and minimum child size) are chosen on dev by log loss; probabilities
+are calibrated on dev (Platt scaling for logistic, isotonic for LightGBM).
+
+Outputs: `results/models/<model>/*.joblib`, `results/models/<model>/metrics.json`,
+`results/risk_<model>.md` (ECE with 15 bins, Brier, log loss, AUROC, AUPRC on dev,
+syn_test and adv_test), and `cache/risk/<model>.parquet` (calibrated P(error) per
+field for every variant; the input of Step 15). Dev scores are optimistic because
+calibration is fitted there; syn_test and adv_test are the honest numbers. With few
+dev errors, isotonic calibration is coarse; this is reported, not tuned away.

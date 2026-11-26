@@ -13,3 +13,5 @@ openai>=1
 jsonschema
 pandas
 pyarrow
+scikit-learn
+lightgbm
