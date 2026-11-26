@@ -1,0 +1,95 @@
+name: Daily synthetic rates feed
+on:
+  schedule:
+    - cron: '15 6 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: Optional publication date (YYYY-MM-DD UTC)
+        type: string
+concurrency:
+  group: daily-feed-publication
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: read
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FRONTIER_BASE_URL: ${{ secrets.FRONTIER_BASE_URL }}
+      FRONTIER_API_KEY: ${{ secrets.FRONTIER_API_KEY }}
+      BOOTSTRAP_RUN: ${{ vars.FEED_BOOTSTRAP_RUN }}
+      PUBLICATION_DATE: ${{ inputs.date || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.FEED_PUBLISH_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore feed model-call cache and budget ledger
+        uses: actions/cache@v4
+        with:
+          path: cache/live_feed
+          key: live-feed-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: live-feed-v1-
+      - name: Prepare feed and website branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "Trust but Verify feed"
+          git config --global user.email "feed@users.noreply.github.com"
+          for branch in feed-data gh-pages; do
+            dir="$RUNNER_TEMP/$branch"
+            git ls-remote --heads origin "$branch" > "$RUNNER_TEMP/$branch.ref"
+            if [[ -s "$RUNNER_TEMP/$branch.ref" ]]; then
+              git fetch --no-tags origin "refs/heads/$branch"
+              git worktree add --detach "$dir" FETCH_HEAD
+            else
+              git init -q "$dir"
+            fi
+          done
+      - name: Run and publish atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          publication="${PUBLICATION_DATE:-$(date -u +%F)}"
+          [[ "$publication" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+          if [[ "$(date -u -d "$publication" +%u)" -ge 6 ]]; then
+            echo "Skipped: weekend"
+            exit 0
+          fi
+          data="$RUNNER_TEMP/feed-data"
+          web="$RUNNER_TEMP/gh-pages"
+          if [[ -f "$data/feed/$publication.json" ]]; then
+            echo "Skipped: date already published"
+            exit 0
+          fi
+          if [[ -z "$FRONTIER_BASE_URL" || -z "$FRONTIER_API_KEY" || -z "$BOOTSTRAP_RUN" ]]; then
+            echo "Skipped: configure PCSS credentials and FEED_BOOTSTRAP_RUN first"
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core
+          pip install -r requirements-dev.txt -e .
+          bootstrap="$RUNNER_TEMP/bootstrap"
+          gh run download "$BOOTSTRAP_RUN" --name feed-bootstrap --dir "$bootstrap"
+          python scripts/daily_feed.py --date "$publication" --feed-dir "$data/feed" --site "$web/index.html" \
+            --replay "$bootstrap/index.html" --risk-model "$bootstrap/full_logistic.joblib"
+          if [[ ! -f "$data/feed/$publication.json" ]]; then
+            exit 0
+          fi
+          git -C "$data" add -- "feed/$publication.json" feed/history.json
+          git -C "$data" commit -m "Publish rates feed for $publication"
+          git -C "$web" add -- index.html
+          if ! git -C "$web" diff --cached --quiet; then
+            git -C "$web" commit -m "Refresh dashboard for $publication"
+          fi
+          data_sha="$(git -C "$data" rev-parse HEAD)"
+          web_sha="$(git -C "$web" rev-parse HEAD)"
+          git fetch "$data" HEAD
+          git fetch "$web" HEAD
+          git push --atomic origin "$data_sha:refs/heads/feed-data" "$web_sha:refs/heads/gh-pages"

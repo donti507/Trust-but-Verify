@@ -23,6 +23,7 @@
       >
       <nav aria-label="Main navigation">
         <a href="#overview" data-nav="overview">Overview</a
+        ><a href="#feed" data-nav="feed">Today’s trades</a
         ><a href="#confirmations" data-nav="confirmations">Confirmations</a>
         <a href="#method" data-nav="method">How it works</a
         ><a href="#audit" data-nav="audit">Audit &amp; Governance</a>
@@ -208,6 +209,55 @@
               ><button id="queue-next" type="button">Next</button>
             </div>
           </div>
+        </section>
+      </section>
+      <section id="feed" data-view hidden>
+        <header class="hero panel">
+          <div>
+            <span class="eyebrow">Daily rates feed</span>
+            <h1>Today’s trades</h1>
+            <p>
+              Market terms from public DTCC data; documents and parties are
+              fictional.
+            </p>
+            <label
+              >Published date
+              <select id="feed-date"></select
+            ></label>
+          </div>
+          <span class="pill blue">Synthetic demo</span>
+        </header>
+        <section class="panel queue">
+          <div class="queue-head">
+            <h2>Confirmation queue</h2>
+            <span id="feed-summary"></span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Trade</th>
+                  <th>Planted defect</th>
+                  <th>Decision</th>
+                  <th>Open</th>
+                </tr>
+              </thead>
+              <tbody id="feed-queue"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel journey">
+          <h2>30-day feed history</h2>
+          <svg
+            id="feed-history"
+            viewBox="0 0 620 180"
+            role="img"
+            aria-label="Automation percentage and planted defects caught over time"
+          ></svg>
+          <p>
+            Blue: fields automated (%). Green: planted defects sent to review
+            (%).
+          </p>
         </section>
       </section>
       <section id="confirmations" data-view hidden>

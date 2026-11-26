@@ -127,9 +127,9 @@ def load_documents(data: Path, cache: Path, model: str, costs: Costs, n: int) ->
     return documents
 
 
-def render_page(documents: list[dict], bound: float, *, illustrative: bool = False) -> str:
+def render_page(documents: list[dict], bound: float, *, illustrative: bool = False, feed: dict | None = None) -> str:
     payload = json.dumps(
-        {"documents": documents, "rules": RULE_TEXT, "bound": bound, "illustrative": illustrative},
+        {"documents": documents, "rules": RULE_TEXT, "bound": bound, "illustrative": illustrative, "feed": feed},
         allow_nan=False, separators=(",", ":"),
     )
     # Keep data inside the JSON script element even if document text contains HTML.

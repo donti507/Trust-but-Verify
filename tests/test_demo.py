@@ -151,7 +151,7 @@ def test_stitch_views_and_chart_share_the_offline_data(tmp_path):
     page = BeautifulSoup(html, "html.parser")
 
     assert {view["id"] for view in page.select("[data-view]")} == {
-        "overview", "confirmations", "method", "audit",
+        "overview", "confirmations", "method", "audit", "feed",
     }
     assert {link["href"][1:] for link in page.select("[data-nav]")} == {
         view["id"] for view in page.select("[data-view]")

@@ -36,6 +36,8 @@ function decision(p, c_bar, r, lambda) {
   let stage = 0;
   let assurance = "flow";
   let curve = [];
+  const feed = data.feed || { days: [], history: [] };
+  let feedDay = feed.days.at(-1);
 
   function element(tag, text = "", className = "") {
     const node = document.createElement(tag);
@@ -57,7 +59,12 @@ function decision(p, c_bar, r, lambda) {
     );
   }
 
-  function fieldDecision(field, threshold = lambda()) {
+  function fieldDecision(
+    field,
+    threshold = selectedDoc.collection === "live_feed"
+      ? feedDay.threshold
+      : lambda(),
+  ) {
     return decision(field.p, field.c_bar, field.r, threshold);
   }
 
@@ -267,12 +274,119 @@ function decision(p, c_bar, r, lambda) {
     return ["Straight-through", "accept"];
   }
 
+  function reviewDocuments() {
+    return selectedDoc.collection === "live_feed"
+      ? feedDay.documents
+      : records();
+  }
+
+  function fillPicker(docs) {
+    picker.replaceChildren(
+      ...docs.map((record) => {
+        const option = element("option", record.id + " · " + record.category);
+        option.value = record.id;
+        return option;
+      }),
+    );
+    picker.value = selectedDoc.id;
+  }
+
+  function renderFeed() {
+    const date = byId("feed-date");
+    date.replaceChildren(
+      ...feed.days.map((day) => element("option", day.date)),
+    );
+    date.disabled = !feedDay;
+    date.value = feedDay?.date ?? "";
+    const body = byId("feed-queue");
+    body.replaceChildren();
+    byId("feed-summary").textContent = feedDay
+      ? "Source day " + feedDay.source_date + " · λ " + feedDay.threshold
+      : "No published feed yet";
+    for (const record of feedDay?.documents ?? []) {
+      const row = element("tr");
+      const action = element("td");
+      action.append(
+        button("Review trade", () => showDocument(record), "primary"),
+      );
+      const [status, tone] = tradeStatus(facts(record, feedDay.threshold));
+      const badge = element("td");
+      badge.append(element("span", status, "pill " + tone));
+      row.append(
+        element("th", record.id),
+        element("td", record.defect?.replaceAll("_", " ") ?? "None"),
+        badge,
+        action,
+      );
+      body.append(row);
+    }
+    const svg = byId("feed-history");
+    svg.replaceChildren();
+    if (!feed.history.length) return;
+    const x = (i) => 48 + (i * 548) / Math.max(1, feed.history.length - 1);
+    const y = (value) => 145 - 1.25 * value;
+    const draw = (tag, attrs, value = "") => {
+      const node = document.createElementNS(svg.namespaceURI, tag);
+      for (const [name, content] of Object.entries(attrs))
+        node.setAttribute(name, content);
+      node.textContent = value;
+      svg.append(node);
+    };
+    for (const value of [0, 25, 50, 75, 100]) {
+      draw("line", {
+        x1: 48,
+        y1: y(value),
+        x2: 596,
+        y2: y(value),
+        stroke: "#dde5f4",
+      });
+      draw(
+        "text",
+        { x: 4, y: y(value) + 4, fill: "#405575", "font-size": 12 },
+        value + "%",
+      );
+    }
+    for (const [color, value] of [
+      ["#004ac6", (row) => row.automation_pct],
+      ["#006243", (row) => (100 * row.defects_caught) / row.defects_planted],
+    ]) {
+      draw("polyline", {
+        points: feed.history
+          .map((row, i) => x(i) + "," + y(value(row)))
+          .join(" "),
+        fill: "none",
+        stroke: color,
+        "stroke-width": 3,
+      });
+      feed.history.forEach((row, i) =>
+        draw("circle", { cx: x(i), cy: y(value(row)), r: 3, fill: color }),
+      );
+    }
+    const last = feed.history.length - 1;
+    [0, ...(last ? [last] : [])].forEach((i) =>
+      draw(
+        "text",
+        {
+          x: x(i),
+          y: 169,
+          fill: "#405575",
+          "font-size": 12,
+          "text-anchor": i ? "end" : "start",
+        },
+        feed.history[i].date,
+      ),
+    );
+  }
+
   function showDocument(record) {
     selectedDoc = record;
-    if (collection.value !== cohort(record))
+    if (
+      record.collection !== "live_feed" &&
+      collection.value !== cohort(record)
+    )
       changeCollection(cohort(record), record);
     selected = -1;
-    picker.value = record.id;
+    fillPicker(reviewDocuments());
     if (location.hash === "#confirmations") renderReview();
     else location.hash = "confirmations";
   }
@@ -440,7 +554,11 @@ function decision(p, c_bar, r, lambda) {
         "Cost if wrong: " +
           field.severity +
           ". Threshold λ " +
-          number(lambda()) +
+          number(
+            selectedDoc.collection === "live_feed"
+              ? feedDay.threshold
+              : lambda(),
+          ) +
           ".",
       ),
     );
@@ -501,9 +619,12 @@ function decision(p, c_bar, r, lambda) {
 
   function renderReview() {
     const record = selectedDoc;
-    const docs = records();
+    const docs = reviewDocuments();
     const position = docs.indexOf(record);
-    const row = facts(record, lambda());
+    const row = facts(
+      record,
+      record.collection === "live_feed" ? feedDay.threshold : lambda(),
+    );
     const decisions = record.fields.map((field) => fieldDecision(field));
     if (selected < 0) {
       selected = decisions.indexOf("Review");
@@ -605,6 +726,22 @@ function decision(p, c_bar, r, lambda) {
       fieldsPanel.append(group);
     }
     renderText(record, decisions);
+    let feedCallouts = byId("feed-source-reviews");
+    if (!feedCallouts) {
+      feedCallouts = element("div", "", "feed-callouts");
+      feedCallouts.id = "feed-source-reviews";
+      byId("document-text").after(feedCallouts);
+    }
+    feedCallouts.replaceChildren();
+    if (record.collection === "live_feed") {
+      record.fields.forEach((field, i) => {
+        if (decisions[i] === "Review")
+          feedCallouts.append(
+            button("Sent to review · " + field.name, () => chooseField(i)),
+          );
+      });
+    }
+    feedCallouts.hidden = !feedCallouts.childElementCount;
     renderExplanation(record.fields[selected], decisions[selected]);
   }
 
@@ -652,12 +789,15 @@ function decision(p, c_bar, r, lambda) {
       );
       stages.append(tile);
     });
-    const record = selectedDoc;
+    const record =
+      selectedDoc.collection === "live_feed" ? records()[0] : selectedDoc;
     const field =
       record.fields[selected] ??
-      record.fields.find((field) => fieldDecision(field) === "Review") ??
+      record.fields.find(
+        (field) => fieldDecision(field, lambda()) === "Review",
+      ) ??
       record.fields[0];
-    const action = fieldDecision(field);
+    const action = fieldDecision(field, lambda());
     byId("journey-title").textContent = "One field’s journey: " + field.name;
     byId("journey-state").textContent =
       action === "Review" ? "Escalation example" : "Acceptance example";
@@ -853,6 +993,7 @@ function decision(p, c_bar, r, lambda) {
     confirmations: renderReview,
     method: renderMethod,
     audit: renderAudit,
+    feed: renderFeed,
   };
   function route() {
     const hash = location.hash.slice(1);
@@ -893,13 +1034,15 @@ function decision(p, c_bar, r, lambda) {
     route();
   });
   picker.addEventListener("change", () =>
-    showDocument(records().find((record) => record.id === picker.value)),
+    showDocument(
+      reviewDocuments().find((record) => record.id === picker.value),
+    ),
   );
   byId("previous").addEventListener("click", () =>
-    showDocument(records()[records().indexOf(selectedDoc) - 1]),
+    showDocument(reviewDocuments()[reviewDocuments().indexOf(selectedDoc) - 1]),
   );
   byId("next").addEventListener("click", () =>
-    showDocument(records()[records().indexOf(selectedDoc) + 1]),
+    showDocument(reviewDocuments()[reviewDocuments().indexOf(selectedDoc) + 1]),
   );
   slider.addEventListener("input", renderOverview);
   byId("budget").addEventListener("input", drawChart);
@@ -940,6 +1083,15 @@ function decision(p, c_bar, r, lambda) {
   );
   byId("export-overview").addEventListener("click", exportAudit);
   byId("export-audit").addEventListener("click", exportAudit);
+  byId("feed-date").addEventListener("change", (event) => {
+    feedDay = feed.days.find((day) => day.date === event.target.value);
+    if (selectedDoc.collection === "live_feed") {
+      selectedDoc = feedDay.documents[0];
+      selected = -1;
+      fillPicker(reviewDocuments());
+    }
+    renderFeed();
+  });
   window.addEventListener("hashchange", route);
   route();
 })();
