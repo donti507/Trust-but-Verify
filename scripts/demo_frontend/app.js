@@ -146,6 +146,35 @@ if (typeof module !== "undefined" && module.exports) {
     });
     const positions = Array.from(bounds).sort((a, b) => a - b);
     const fragment = document.createDocumentFragment();
+    // Fields sent to review get a callout box after the line that holds them.
+    const pending = [];
+    const flagged = new Set();
+    function callout(index) {
+      const field = record.fields[index];
+      const box = element("button", "", "callout");
+      box.type = "button";
+      const reason = field.rules_fired.length
+        ? field.rules_fired.map((rule) => data.rules[rule]).join(" ")
+        : "High estimated error risk for a " + field.severity + " field.";
+      box.append(
+        element("span", "Sent to review", "callout-tag"),
+        element("strong", field.name),
+        element("span", reason + " Risk " + pct(field.p) + "."),
+      );
+      if (selected === index) box.classList.add("selected");
+      box.addEventListener("click", () => chooseField(index, false));
+      return box;
+    }
+    function plain(text) {
+      const cut = pending.length ? text.indexOf("\n") : -1;
+      if (cut < 0) {
+        fragment.appendChild(document.createTextNode(text));
+        return;
+      }
+      fragment.appendChild(document.createTextNode(text.slice(0, cut + 1)));
+      pending.splice(0).forEach((index) => fragment.appendChild(callout(index)));
+      fragment.appendChild(document.createTextNode(text.slice(cut + 1)));
+    }
     for (let i = 1; i < positions.length; i++) {
       const start = positions[i - 1];
       const end = positions[i];
@@ -155,8 +184,14 @@ if (typeof module !== "undefined" && module.exports) {
         if (field.span && field.span[0] <= start && end <= field.span[1])
           matches.push(index);
       });
+      matches.forEach((index) => {
+        if (decisions[index] === "Review" && !flagged.has(index)) {
+          flagged.add(index);
+          pending.push(index);
+        }
+      });
       if (!matches.length) {
-        fragment.appendChild(document.createTextNode(text));
+        plain(text);
         continue;
       }
       // For overlapping spans, show the selected field or prefer a review highlight.
@@ -178,6 +213,7 @@ if (typeof module !== "undefined" && module.exports) {
       mark.addEventListener("click", () => chooseField(index, false));
       fragment.appendChild(mark);
     }
+    pending.splice(0).forEach((index) => fragment.appendChild(callout(index)));
     byId("document-text").replaceChildren(fragment);
     const callouts = byId("source-callouts");
     callouts.replaceChildren();
@@ -532,7 +568,9 @@ if (typeof module !== "undefined" && module.exports) {
       stats.total - stats.accepted + " fields flagged for review";
     byId("caught").textContent =
       stats.caught + " of " + errors + " known errors sent to review";
-    byId("missed").textContent = stats.missed + " known errors slipped through";
+    byId("missed").textContent =
+      stats.missed +
+      (stats.missed === 1 ? " known error slipped through" : " known errors slipped through");
     byId("policy-auto").textContent = pct(stats.automation);
     byId("policy-estimated").textContent = lossPct(stats.estimated);
     drawChart();
@@ -681,7 +719,7 @@ if (typeof module !== "undefined" && module.exports) {
       (row.total - row.accepted) +
       " pending policy review · " +
       row.caught +
-      " known errors caught";
+      (row.caught === 1 ? " known error caught" : " known errors caught");
     byId("previous").disabled = position <= 0;
     byId("next").disabled = position >= docs.length - 1;
     const summary = byId("trade-summary");
