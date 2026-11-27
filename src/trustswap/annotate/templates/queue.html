@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Queue{% endblock %}
+{% block content %}
+<section class="hero">
+<h1>{{ 'Adjudication queue' if g.user.role == 'ADJ' else 'My annotation queue' }}</h1>
+{% if not locked %}
+<p>{{ 'Complete the inclusion checklist for every document to assign the labelling cohort.' if g.user.role == 'A1' else 'Import A1’s inclusion file to unlock the cohort.' }}</p>
+{% elif g.user.role == 'ADJ' %}
+<p>{{ ready }} documents ready for gold export.</p>
+{% else %}
+<p>{{ summary.final }} of {{ summary.assigned }} documents finalized.</p>
+<progress max="{{ summary.assigned or 1 }}" value="{{ summary.final }}" aria-label="Document progress"></progress>
+{% endif %}
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+{% if message %}<p role="status">{{ message }}</p>{% endif %}
+</section>
+<section class="panel queue">
+<h2>{{ 'Open disagreements' if g.user.role == 'ADJ' else 'Assigned documents' if locked else 'Inclusion checklist' }}</h2>
+{% if g.user.role == 'ADJ' %}
+<ul>{% for doc, count in pending %}<li><a href="{{ url_for('adjudication',doc=doc) }}">{{ doc }}</a>
+<span class="tag caution">{{ count }} pending</span></li>
+{% else %}<li>No pending disagreements.</li>{% endfor %}</ul>
+{% else %}
+<ul>{% for row in rows %}
+<li><a href="{{ url_for('edit' if locked else 'screening',doc=row.id) }}">{{ row.id }}</a>
+{% if locked %}
+<span class="tag {{ 'caution' if row.stage == 'review' else '' }}">{{ {'review': 'Re-check', 'draft': 'Resume', 'final': 'Finalized'}.get(row.stage,'Start') }}</span>
+{% else %}<span class="tag">{{ 'Screened' if row.screened else 'Screen' }}</span>{% endif %}</li>
+{% else %}<li>No documents in this queue.</li>{% endfor %}</ul>
+{% endif %}
+</section>
+<section class="panel exchange"><h2>Label exchange</h2>
+{% if locked %}
+{% if g.user.role == 'ADJ' %}<a class="button" href="{{ url_for('export_gold') }}">Export gold.jsonl</a>
+{% else %}<a class="button" href="{{ url_for('export_labels') }}">Export my labels</a>{% endif %}
+{% endif %}
+<form method="post" action="{{ url_for('import_labels') }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf() }}">
+<label>Other annotator’s labels file<input name="labels" type="file" accept=".jsonl" required></label>
+<button class="secondary">Import labels</button>
+</form>
+</section>
+{% endblock %}

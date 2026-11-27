@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Field labels{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='annotation.js') }}" defer></script>{% endblock %}
+{% block content %}
+<section class="hero">
+<h1>{{ {'draft': 'Label fields', 'review': 'Re-check submitted labels', 'final': 'Finalized labels'}[view.stage] }}</h1>
+<p>{{ source.id }}{% if view.mode == 'prefill' %} · Pre-fill enabled{% endif %}</p>
+{% if view.stage == 'draft' %}
+<p><kbd>Tab</kbd> next field · <kbd>A</kbd> mark absent from a field header · <kbd>Enter</kbd> submit from a value</p>
+{% if view.mode == 'prefill' %}<p>Confirm each field after checking its source. Pre-filled terms are unverified.</p>{% endif %}
+{% elif view.stage == 'review' %}
+<p>Re-check every flagged field. Add a reason for any change.</p>
+{% endif %}
+<p id="editor-error" class="alert" role="alert" hidden></p>
+</section>
+<div class="split">
+{% set selectable = view.stage != 'final' %}
+{% include 'source.html' %}
+<form id="editor" class="editor">
+<noscript><p class="alert">The field editor requires local JavaScript.</p></noscript>
+<section class="panel">
+<label>Swap structure<select id="structure" {{ 'disabled' if view.stage != 'draft' }}>
+<option value="">Choose the structure</option>
+{% for key, name in structures.items() %}<option value="{{ key }}">{{ name }}</option>{% endfor %}
+</select></label>
+</section>
+{% for group, fields in groups.items() %}
+<section class="term-group" data-group hidden><h2>{{ group }}</h2>
+{% for path, name in fields %}
+<article class="panel field" data-path="{{ path }}" hidden>
+<h3 tabindex="0" data-heading>{{ name }}</h3><span class="tag caution" data-unverified hidden>Unverified</span>
+{% if path in view.checks %}
+<ul class="alert">{% for finding in view.checks[path] %}<li>{{ finding }}</li>{% endfor %}</ul>
+{% endif %}
+<label>Status<select data-status>
+<option value="">Unanswered</option><option value="explicit">Value and source span</option>
+<option value="absent">Absent</option><option value="ambiguous">Ambiguous</option>
+</select></label>
+<label data-value-label>Value<input data-value autocomplete="off"></label>
+<button type="button" class="secondary mini" data-show-span hidden>Show selected span</button>
+<label>Note<textarea rows="2" data-note></textarea></label>
+{% if view.mode == 'prefill' %}<label class="inline"><input type="checkbox" data-confirmed> I confirmed this field</label>{% endif %}
+{% if view.stage == 'review' %}
+{% if path in view.checks %}<label class="inline"><input type="checkbox" data-rechecked> I re-checked this field</label>{% endif %}
+<label>Reason for change<textarea rows="2" data-reason></textarea></label>
+{% endif %}
+</article>
+{% endfor %}
+</section>
+{% endfor %}
+<fieldset class="panel features"><legend>Document characteristics</legend>
+{% for flag in flags %}<label class="inline"><input type="checkbox" data-flag="{{ flag }}" {{ 'disabled' if view.stage != 'draft' }}>
+{{ flag|capitalize }}</label>{% endfor %}
+<label class="inline"><input id="features-reviewed" type="checkbox" {{ 'disabled' if view.stage != 'draft' }}> Reviewed, including when none apply</label>
+</fieldset>
+<footer class="panel sticky">
+<div><progress id="field-progress" max="1" value="0" aria-label="Field progress"></progress><p id="progress-count"></p></div>
+<span id="saved-state" role="status"></span>
+{% if view.stage != 'final' %}<button id="submit-labels">{{ 'Finalize labels' if view.stage == 'review' else 'Submit labels' }}</button>
+{% else %}<a class="button" href="{{ url_for('queue') }}">Return to queue</a>{% endif %}
+</footer>
+</form>
+</div>
+<script type="application/json" id="editor-data">{{ view|tojson }}</script>
+{% endblock %}

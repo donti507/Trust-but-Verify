@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Begin annotation{% endblock %}
+{% block content %}
+<section class="hero"><h1>Begin annotation</h1><p>{{ source.id }}</p></section>
+<section class="panel">
+<form method="post" action="{{ url_for('start',doc=source.id) }}" class="actions">
+<input type="hidden" name="csrf" value="{{ csrf() }}">
+<button name="mode" value="blind">Begin annotation</button>
+{% if may_prefill %}<button class="secondary" name="mode" value="prefill">Begin with unverified pre-fill</button>{% endif %}
+</form>
+</section>
+{% endblock %}

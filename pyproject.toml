@@ -10,6 +10,7 @@ description = "Verification and cost-aware abstention for AI-extracted swap term
 
 [project.optional-dependencies]
 desk = ["Flask>=3.1,<4", "bcrypt>=4,<6"]
+annotate = ["Flask>=3.1,<4", "bcrypt>=4,<6", "pydantic>=2", "beautifulsoup4", "pdfplumber", "pymupdf"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -25,3 +26,5 @@ markers = ["browser: optional offline browser tests"]
 "trustswap.extract" = ["prompts/*.txt", "prompts/*.json"]
 
 "trustswap.desk" = ["templates/*.html"]
+
+"trustswap.annotate" = ["templates/*.html", "static/*.css", "static/*.js"]

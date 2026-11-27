@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Inclusion{% endblock %}
+{% block content %}
+<section class="hero"><h1>Inclusion checklist</h1><p>{{ source.id }}</p></section>
+<div class="split">
+{% include 'source.html' %}
+<section class="panel">
+<h2>Is this document eligible?</h2>
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+<form method="post">
+<input type="hidden" name="csrf" value="{{ csrf() }}">
+{% for key, text in checklist %}
+<fieldset class="checklist"><legend>{{ text }}</legend>
+<label><input type="radio" name="{{ key }}" value="yes" required {{ 'checked' if form.answers.get(key) is sameas true }}> Yes</label>
+<label><input type="radio" name="{{ key }}" value="no" required {{ 'checked' if form.answers.get(key) is sameas false }}> No</label>
+</fieldset>
+{% endfor %}
+<label>Decision<select name="decision" required>
+<option value="">Choose a decision</option>
+<option value="include" {{ 'selected' if form.include is sameas true }}>Include</option>
+<option value="exclude" {{ 'selected' if form.include is sameas false }}>Exclude</option>
+</select></label>
+<label>Reason<textarea name="reason" required>{{ form.reason }}</textarea></label>
+<label>Duplicate of (optional)<input name="duplicate_of" list="documents" value="{{ form.duplicate_of }}"></label>
+<datalist id="documents">{% for doc in known %}<option value="{{ doc }}">{% endfor %}</datalist>
+<button>Save decision</button>
+</form>
+</section></div>
+{% endblock %}

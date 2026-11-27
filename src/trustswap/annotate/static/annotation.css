@@ -1,0 +1,74 @@
+/* Local adaptation of the Stitch demo's palette, cards and typography. */
+:root {
+  color-scheme:light; --bg:#f4f6fc; --ink:#0d1c2f; --muted:#4d5f7d; --blue:#004ac6;
+  --action:#2563eb; --tint:#edf2ff; --line:#dde5f4; --red:#a52420; --amber:#795008;
+  font:15px/1.5 Inter,system-ui,sans-serif; color:var(--ink); background:var(--bg);
+}
+* { box-sizing:border-box }
+[hidden] { display:none !important }
+body { margin:0 }
+a { color:var(--blue) }
+h1,h2,h3,p { margin:0 0 .65rem }
+h1 { font-size:clamp(1.55rem,3.25vw,2.45rem); letter-spacing:-.025em; line-height:1.2 }
+h2 { font-size:1.17rem }
+h3 { font-size:1rem }
+p,.muted { color:var(--muted) }
+.bar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; padding:.8rem max(1rem,calc((100% - 1240px)/2)); background:white; border-bottom:1px solid var(--line) }
+.brand { color:var(--ink); font-weight:800; text-decoration:none }
+nav { flex:1; display:flex; gap:.7rem }
+nav a { text-decoration:none; font-weight:650 }
+main { width:min(1240px,100%); padding:1.2rem 1rem; margin:auto; display:grid; gap:1rem }
+.panel,.hero { min-width:0; border:1px solid var(--line); border-radius:.75rem; background:white; padding:1rem }
+.hero { background:linear-gradient(110deg,#fff 58%,var(--tint)) }
+.login { width:min(430px,100%); margin:auto }
+.tag { display:inline-block; padding:.2rem .55rem; background:var(--tint); color:var(--blue); border-radius:1rem; font-size:.83rem; font-weight:700 }
+.caution { background:#fff1ca; color:var(--amber) }
+.alert { color:var(--red); background:#fff0ee; border-left:3px solid var(--red); padding:.55rem .75rem; margin:.55rem 0 }
+ul.alert { padding-left:1.8rem }
+button,.button,input,textarea,select { font:inherit }
+button,.button { display:inline-block; background:var(--action); border:0; border-radius:.45rem; color:white; font-weight:650; padding:.5rem .8rem; cursor:pointer; text-decoration:none }
+button:disabled { opacity:.65; cursor:wait }
+.secondary { color:#143463; background:var(--tint) }
+.mini { padding:.25rem .5rem; margin-top:.5rem }
+label { font-weight:650; display:block; margin:.45rem 0 }
+input:not([type=checkbox],[type=radio],[type=hidden]),select,textarea {
+  display:block; border:1px solid #acbddc; border-radius:.4rem; padding:.45rem .55rem; color:var(--ink); background:#fff; width:100%; max-width:100%;
+}
+textarea { resize:vertical; min-height:3rem }
+:focus-visible { outline:3px solid var(--blue); outline-offset:2px }
+fieldset { min-width:0; border:1px solid var(--line); border-radius:.4rem }
+legend { font-weight:650 }
+.checklist { margin:.45rem 0 }
+.checklist label { display:inline-block; padding-right:1rem }
+.inline { display:flex; align-items:center; gap:.4rem; font-weight:500 }
+.split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); align-items:start; gap:1rem }
+.source-panel { position:sticky; top:1rem }
+.source-panel textarea { line-height:1.75; padding:.8rem; min-height:14rem; height:calc(100vh - 15rem); background:#fafeff; white-space:pre-wrap }
+.source-panel button { margin-top:.6rem }
+.editor,.term-group { min-width:0; display:grid; gap:.65rem }
+.term-group { margin-top:.4rem }
+.term-group h2 { margin:0; color:#28476f }
+.field { scroll-margin:1rem 0 6rem }
+.field.active { border-color:#5482d4; box-shadow:0 0 0 1px #5482d4 }
+.sticky { position:sticky; bottom:0; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.6rem; box-shadow:0 -4px 18px #11235e18 }
+.sticky p { margin:0 }
+progress { accent-color:var(--action); max-width:100% }
+.queue ul { padding:0; margin:0; list-style:none }
+.queue li { display:flex; justify-content:space-between; gap:1rem; align-items:center; border-bottom:1px solid var(--line); padding:.65rem .2rem; overflow-wrap:anywhere }
+.queue li:last-child { border-bottom:0 }
+.exchange form { margin-top:.65rem; max-width:480px }
+.actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center }
+.paired,.summaries { display:grid; gap:.6rem; grid-template-columns:repeat(2,minmax(0,1fr)) }
+.paired > div { border:1px solid var(--line); border-radius:.4rem; padding:.6rem; overflow-wrap:anywhere }
+blockquote { margin:.45rem 0 0; border-left:2px solid var(--line); padding-left:.55rem }
+dl { display:grid; grid-template-columns:1fr auto; column-gap:.5rem }
+dd { margin:0 }
+table { border-collapse:collapse; width:100%; text-align:left }
+th,td { padding:.5rem; border-bottom:1px solid var(--line) }
+thead { background:var(--tint) }
+.overflow { overflow:auto }
+@media(max-width:780px) {
+  .split,.summaries { grid-template-columns:1fr }
+  .source-panel { position:static }
+  .source-panel textarea { height:32vh }
+}

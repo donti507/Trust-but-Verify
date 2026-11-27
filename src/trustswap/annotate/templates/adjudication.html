@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Adjudication{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='annotation.js') }}" defer></script>{% endblock %}
+{% block content %}
+<section class="hero">
+<h1>Adjudicate disagreements</h1><p>{{ source.id }} · {{ comparison.pending|length }} pending</p>
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+</section>
+<div class="split">
+{% set selectable = true %}
+{% include 'source.html' %}
+<section class="editor">
+{% for path, choices in comparison.differences.items() %}
+<form class="panel field" method="post" data-path="{{ path }}" data-adjudication="{{ url_for('adjudication_selection',doc=source.id) }}" action="{{ url_for('decide',doc=source.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf() }}"><input type="hidden" name="field" value="{{ path }}">
+<h2>{{ special[path] if path in special else field_label(path) }}</h2>
+{% if path in comparison.answers %}<span class="tag">Decided</span><p>{{ comparison.decisions[path].reason }}</p>{% endif %}
+<div class="paired">
+{% for term in choices %}
+<div><h3>{{ 'A1' if loop.first else 'A2' }}</h3>
+{% if path == '__structure__' %}<p>{{ structures[term] }}</p>
+{% elif path == '__flags__' %}<p>{{ term|join(', ') or 'None' }}</p>
+{% elif term is none %}<p>Outside the annotated structure</p>
+{% else %}
+<p>{{ term.status|capitalize }}{% if term.value is not none %} · {{ term.value|join(', ') if term.value is iterable and term.value is not string and term.value is not mapping else term.value }}{% endif %}</p>
+{% if term.span %}<blockquote>{{ source.text[term.span[0]:term.span[1]] }}</blockquote>{% endif %}
+{% endif %}
+</div>
+{% endfor %}
+</div>
+<label>Decision<select name="choice" required>
+<option value="">Choose a label</option>
+{% if choices[0] is not none %}<option value="A1">Use A1</option>{% endif %}
+{% if choices[1] is not none %}<option value="A2">Use A2</option>{% endif %}
+{% if path not in special %}<option value="manual">Enter final answer</option>{% endif %}
+</select></label>
+{% if path not in special %}<fieldset data-manual hidden><legend>Final answer</legend>
+<label>Status<select name="status"><option value="explicit">Value and source span</option><option value="absent">Absent</option>
+<option value="ambiguous">Ambiguous</option></select></label>
+<label>Value<input name="value"></label>
+<div class="paired"><label>Span start<input name="start" inputmode="numeric"></label>
+<label>Span end<input name="end" inputmode="numeric"></label></div>
+</fieldset>{% endif %}
+<label>Reason<textarea name="reason" required></textarea></label>
+<button>Record decision</button>
+</form>
+{% endfor %}
+</section>
+</div>
+<p id="adjudication-error" class="alert" role="alert" hidden></p>
+{% endblock %}
