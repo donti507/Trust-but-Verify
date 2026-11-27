@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS fields (
     proposed TEXT, note TEXT, proposer INTEGER REFERENCES users(id),
     reason TEXT, PRIMARY KEY (trade_id,path)
 );
+CREATE TABLE IF NOT EXISTS field_evidence (
+    trade_id TEXT NOT NULL, path TEXT NOT NULL, raw TEXT NOT NULL, span TEXT,
+    PRIMARY KEY (trade_id,path), FOREIGN KEY (trade_id,path) REFERENCES fields(trade_id,path)
+);
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value REAL NOT NULL);
 INSERT OR IGNORE INTO settings VALUES ('lambda',1.0);
 CREATE TABLE IF NOT EXISTS audit (
@@ -90,7 +94,14 @@ def new_trade(db, trade_id, source_collection, text, fields):
           json.dumps(details["booking"], allow_nan=False), details["p"], details["c"], details["r"])
          for path, details in fields.items()],
     )
+    save_evidence(db, trade_id, fields)
     event(db, None, "trade_added", trade_id, source_collection=source_collection)
+
+
+def save_evidence(db, trade_id, fields):
+    rows = [(trade_id, path, json.dumps(info.get("raw"), ensure_ascii=False), json.dumps(info.get("span")))
+            for path, info in fields.items() if info.get("raw") is not None or info.get("span") is not None]
+    db.executemany("INSERT OR IGNORE INTO field_evidence (trade_id,path,raw,span) VALUES (?,?,?,?)", rows)
 
 
 def affirm_if_complete(db, trade_id, actor):

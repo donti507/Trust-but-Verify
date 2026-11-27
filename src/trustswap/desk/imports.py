@@ -23,13 +23,13 @@ FIELD_PATHS = set(PATHS)
 DIFFERENCES = ("notional", "rate", "date", "convention")
 
 
-def _label(path):
+def field_label(path):
     leg, _, field = path.rpartition(".")
     label = field.replace("_", " ").capitalize()
     return f"{label} ({LEGS[leg]})" if leg else label
 
 
-LABELS = {_label(path): path for path in PATHS}
+LABELS = {field_label(path): path for path in PATHS}
 
 
 def _trade_id(value):
@@ -122,7 +122,10 @@ def _evidence(doc):
         p, c, r = (float(field[key]) for key in ("p", "c_bar", "r"))
         if not (0 <= p <= 1 and all(math.isfinite(x) and x >= 0 for x in (c, r))):
             raise ValueError("Invalid cached field risk or cost")
-        fields[path] = {"confirmation": raw, "booking": booked, "p": p, "c": c, "r": r}
+        fields[path] = {
+            "confirmation": raw, "booking": booked, "p": p, "c": c, "r": r,
+            "raw": field.get("raw_value", raw), "span": field.get("span"),
+        }
     if not fields:
         raise ValueError("A confirmation needs extracted fields")
     return fields
@@ -162,8 +165,18 @@ def seed(db, replay, feed_dir=None):
             raise ValueError("Duplicate source trade ID")
         prepared[key] = (source, doc["text"], _evidence(doc))
     with store.transaction(db):
-        known = {row[0] for row in db.execute("SELECT id FROM trades")}
-        new = sorted(prepared.keys() - known)
+        known = {row["id"]: (row["source_collection"], row["source"])
+                 for row in db.execute("SELECT id,source_collection,source FROM trades")}
+        for trade in sorted(prepared.keys() & known.keys()):
+            source, text, fields = prepared[trade]
+            if (source, text) == known[trade]:
+                matching = {
+                    row["path"]: fields[row["path"]]
+                    for row in db.execute("SELECT path,confirmation FROM fields WHERE trade_id=?", (trade,))
+                    if row["path"] in fields and json.loads(row["confirmation"]) == fields[row["path"]]["confirmation"]
+                }
+                store.save_evidence(db, trade, matching)
+        new = sorted(prepared.keys() - known.keys())
         candidates = {trade: _possible_differences(prepared[trade][2]) for trade in new}
         eligible = [trade for trade in new if candidates[trade]]
         planted = Random("desk-v1").sample(eligible, min(len(eligible), round(len(new) * 0.2)))

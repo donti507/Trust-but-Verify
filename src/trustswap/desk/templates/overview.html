@@ -2,9 +2,10 @@
 {% block content %}
 <section class="hero"><h1>{{ 'My queue' if g.user.role == 'analyst' else 'Desk overview' }}</h1>
 <p>Review confirmations against the booking. Current risk threshold λ = {{ '%g'|format(threshold) }}.</p>
+{% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}
 {% if g.user.role == 'supervisor' %}
 <form method="post" action="{{ url_for('change_lambda') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<label for="lambda">Change λ</label><input id="lambda" name="lambda" type="number" step="any" min="0" required value="{{ threshold }}"> <button>Save threshold</button></form>
+<label for="lambda">Change λ</label><input id="lambda" name="lambda" inputmode="decimal" required value="{{ threshold if submitted_lambda is none else submitted_lambda }}"> <button>Save threshold</button></form>
 <form method="post" action="{{ url_for('upload_bookings') }}" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <label for="bookings">Import fictional bookings CSV</label><input id="bookings" name="bookings" type="file" accept=".csv,text/csv" required> <button>Import bookings</button></form>

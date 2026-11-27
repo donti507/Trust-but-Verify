@@ -27,7 +27,24 @@ th,td { padding:.65rem .7rem; border-bottom:1px solid #e7edf7; vertical-align:to
 .actions { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.55rem }
 pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:32rem; overflow:auto }
 .login { max-width:420px; width:100%; margin:auto }
-@media(max-width:720px) { .cards { grid-template-columns:1fr } }
+.muted { color:#435775 }
+.form-error { color:#842926; background:#fff0ed; border-left:3px solid #ba1a1a; padding:.55rem .75rem }
+.review-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; align-items:start }
+.source { position:sticky; top:1rem; max-height:calc(100vh - 7rem); overflow:auto }
+.source-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.95 }
+.source-highlight { font-weight:650; border-bottom:2px solid currentColor; text-decoration:none }
+.source-callout { display:inline; margin-inline:.3rem; padding:.12rem .35rem; border-radius:.25rem; font-size:.76rem; font-weight:750; white-space:nowrap }
+.field-groups,.field-group { display:grid; gap:.65rem; min-width:0 }
+.field-group + .field-group { margin-top:.45rem }
+.field-group h2 { font-size:1.05rem; margin:0; color:#2a456a }
+.field-card { overflow-wrap:anywhere; scroll-margin:1rem 0 6rem }
+.field-card:target { outline:2px solid #2563eb }
+.raw-value { display:block; white-space:pre-wrap }
+.review-progress { position:sticky; bottom:0; z-index:1; display:flex; flex-wrap:wrap; gap:.65rem; align-items:center; justify-content:space-between; box-shadow:0 -4px 14px #11235e14 }
+@media(max-width:720px) {
+  .cards,.review-layout { grid-template-columns:1fr }
+  .source { position:static; max-height:45vh }
+}
 </style></head>
 <body>
 <header><span class="brand">Trust but Verify</span><span class="tag">Synthetic demo</span>

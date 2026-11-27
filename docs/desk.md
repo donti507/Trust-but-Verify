@@ -13,6 +13,15 @@ policy threshold. Every field must be accepted or approved before a trade is
 affirmed. Auditors can inspect the read-only event log. The desk collection and
 its SQLite state are isolated from the research pipeline.
 
+On a trade's Review page, select a highlight in the confirmation to jump to the
+field. Red callouts mark fields flagged by the risk policy or the booking
+comparison. Field cards show the original wording and its normalized form when
+it differs. Progress counts accepted and approved fields. Analysts can use
+**Accept all matched low-risk fields** to clear open or rejected fields that
+match the booking and pass the current risk policy. The desk audits each
+acceptance individually. To recover highlights for an older seed, rerun the seed
+command against the same replay and feed files.
+
 ## Seed and import
 
 Load the generated replay page and optional dated feed publications. This adds

@@ -2,28 +2,55 @@
 {% block title %}Review {{ trade.id }}{% endblock %}
 {% block content %}
 <section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ trade.state }}</p>
-<p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p></section>
-<section class="cards" aria-label="Field comparison">
-{% for field in fields %}
-<article class="panel"><h2>{{ field.path }}</h2>
-<span class="tag {{ 'review' if field.risk or field.match != 'MATCH' else 'ok' }}">{{ 'Flagged' if field.risk or field.match != 'MATCH' else 'Matched' }}</span>
-<span class="tag">{{ field.state }}</span>
-<div class="comparison"><div><strong>Confirmation</strong><br>{{ field.confirmation if field.confirmation is not none else 'Missing' }}</div>
-<div><strong>Booking</strong><br>{{ field.booking if field.booking is not none else 'Missing' }}</div></div>
-{% if field.risk or field.match != 'MATCH' %}
+<p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>
+{% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
+<div class="review-layout">
+<section class="panel source" aria-labelledby="source-title">
+<h2 id="source-title">Confirmation source</h2>
+{% if segments %}
+<p class="muted">Select a highlighted term to open its field comparison.</p>
+<div class="source-text">{% for text, field in segments %}{% if field %}<a href="#{{ field.anchor }}" class="source-highlight {{ 'review' if field.flagged else 'ok' }}" aria-label="{{ field.label }}: {{ text }}">{{ text }}</a>{% if field.flagged %}<a href="#{{ field.anchor }}" class="source-callout review">Sent to review</a>{% endif %}{% else %}{{ text }}{% endif %}{% endfor %}</div>
+{% else %}<p>Source text is unavailable for this trade.</p>{% endif %}
+</section>
+<section class="field-groups" aria-label="Field comparison">
+{% for group, group_fields in groups %}
+<section class="field-group"><h2>{{ group }}</h2>
+{% for field in group_fields %}
+<article class="panel field-card" id="{{ field.anchor }}" tabindex="-1"><h3>{{ field.label }}</h3>
+<span class="tag {{ 'review' if field.flagged else 'ok' }}">{{ 'Sent to review' if field.flagged else 'Matched' }}</span>
+<span class="tag">{{ field.state|capitalize }}</span>
+<div class="comparison">
+{% for heading, pair in [('Confirmation', field.confirmation_display), ('Booking', field.booking_display)] %}
+<div><strong>{{ heading }}</strong><span class="raw-value">{{ pair[0] }}</span>
+{% if pair[1] is not none %}<small class="muted">Normalized: {{ pair[1] }}</small>{% endif %}</div>
+{% endfor %}
+</div>
+{% if field.flagged %}
 <p class="reasons">{% if field.risk %}Risk policy: Review ({{ '%.1f'|format(100 * field.p) }}% risk). {% endif %}
 {% if field.match != 'MATCH' %}Booking comparison: {{ field.match }}.{% endif %}</p>
 {% endif %}
 {% if field.reason %}<p>Supervisor reason: {{ field.reason }}</p>{% endif %}
 {% if field.state == 'pending' %}<p>Awaiting approval. {{ field.note }}</p>{% endif %}
 {% if g.user.role == 'analyst' and field.state in ('open','rejected') %}
-<form method="post" action="{{ url_for('review_field',trade_id=trade.id,field=field.path) }}">
+<form method="post" action="{{ url_for('review_field',trade_id=trade.id,field=field.path) }}#{{ field.anchor }}">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-<label>Proposed booking value <input name="value"></label>
-<label>Reviewer note <textarea name="note"></textarea></label>
+{% if form_error and submitted.field == field.path %}<p class="form-error" aria-hidden="true">{{ form_error }}</p>{% endif %}
+<label>Proposed booking value <input name="value" value="{{ submitted.value if submitted.field == field.path else '' }}"></label>
+<label>Reviewer note <textarea name="note">{{ submitted.note if submitted.field == field.path else '' }}</textarea></label>
 <div class="actions"><button name="action" value="accept" class="secondary">Accept field</button><button name="action" value="propose">Propose correction</button></div>
 </form>
 {% endif %}</article>
-{% endfor %}</section>
-{% if trade.source %}<details class="panel"><summary>Confirmation source text</summary><pre>{{ trade.source }}</pre></details>{% endif %}
+{% endfor %}
+</section>
+{% endfor %}
+</section>
+</div>
+<section class="panel review-progress" aria-label="Review progress">
+<strong>{{ cleared }} of {{ fields|length }} fields cleared</strong>
+{% if g.user.role == 'analyst' and can_bulk_accept %}
+<form method="post" action="{{ url_for('accept_matched', trade_id=trade.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button>Accept all matched low-risk fields</button></form>
+{% endif %}
+</section>
 {% endblock %}
