@@ -26,6 +26,12 @@ from trustswap.extract.fields import PATHS, STRUCTURE_LEGS, output_schema
 from trustswap.extract.prompt import line_starts
 
 _VALIDATOR = jsonschema.Draft202012Validator(output_schema())
+_DATES = {"trade_date", "effective_date", "termination_date"}
+_RATES = {"fixed_rate", "spread"}
+_SIGNED = _RATES | {"notional_amount"}
+_EDGE = re.compile(r"^[/:–.,;\s-]+|[/:–.,;\s-]+$")
+_SIGNED_PREFIX = re.compile(r"^(?:[/:–,;\s]|-(?!\d|\.\d)|\.(?!\d))+")
+_SUFFIX = re.compile(r"[/:–.,;\s-]+$")
 _OPTION_SPELLING = {line.strip().upper(): line.strip() for line in
                     files("trustswap.ref").joinpath("floating_rate_options.txt").read_text(encoding="utf-8").splitlines()
                     if line.strip()}
@@ -93,6 +99,29 @@ def _jsonable(value):
     return value
 
 
+def trim_value(path: str, raw_value: str) -> str:
+    """Remove boundary punctuation only from extracted dates, amounts and rates."""
+    name = path.rsplit(".", 1)[-1]
+    if name in _DATES:
+        return _EDGE.sub("", raw_value)
+    if name not in _SIGNED:
+        return raw_value
+    # An attached minus or decimal point is part of the number. A dash
+    # separated from digits by whitespace is a document delimiter.
+    prefixed = _SIGNED_PREFIX.sub("", raw_value)
+    trimmed = _SUFFIX.sub("", prefixed)
+    if name in _RATES and trimmed.casefold().endswith(" p.a") and prefixed[len(trimmed):].startswith("."):
+        return trimmed + "."
+    return trimmed
+
+
+def normalise_value(path: str, raw_value: str):
+    value = _jsonable(normalise_field(path, trim_value(path, raw_value)))
+    if path.endswith("floating_rate_option"):
+        value = _OPTION_SPELLING.get(value, value)  # reference-list spelling
+    return value
+
+
 def parse_completion(raw: str, text: str, tokens: list[tuple[str, float]] | None = None) -> Parsed:
     try:
         data = json.loads(raw)
@@ -121,10 +150,7 @@ def parse_completion(raw: str, text: str, tokens: list[tuple[str, float]] | None
             span = locate(raw_value, answer["line"], text)
             record["span"], record["span_found"] = (list(span) if span else None), span is not None
             try:
-                value = _jsonable(normalise_field(path, raw_value))
-                if path.endswith("floating_rate_option"):
-                    value = _OPTION_SPELLING.get(value, value)  # reference-list spelling
-                record["value"] = value
+                record["value"] = normalise_value(path, raw_value)
             except (ValueError, ArithmeticError) as error:
                 record["normalise_error"] = str(error)
         fields[path] = record
