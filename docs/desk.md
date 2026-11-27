@@ -97,3 +97,16 @@ as an `.eml` file with fictional addresses. Drafting records an audit event and
 sets the case to Waiting for counterparty. Record the reply to return the case to
 Assigned. Pending corrections route to Pending approval. Clearing the outstanding
 issues resolves the case.
+
+## Trade history and lifecycle
+
+Open an affirmed trade and select a lifecycle event. An analyst may enter an
+amended field manually or attach a fictional confirmation. Attachments use the
+desk upload pipeline and show explicitly revised fields against the current
+booked version. A partial termination enters the remaining amount for equal
+same-currency notionals. For a novation, select the outgoing party and use a
+fictional replacement such as Synthetic Party C.
+
+The supervisor sees the booked and proposed values in Approvals. Approval
+creates a new immutable version in History. A rejection keeps the old version
+and records the reason. A full termination locks the trade after approval.

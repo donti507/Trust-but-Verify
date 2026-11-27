@@ -41,6 +41,25 @@ CREATE TABLE IF NOT EXISTS desk_cases (
     severity TEXT NOT NULL CHECK (severity IN ('critical','major','minor')),
     created_at TEXT NOT NULL, due_at TEXT NOT NULL, resolved_at TEXT
 );
+CREATE TABLE IF NOT EXISTS desk_trade_versions (
+    trade_id TEXT NOT NULL REFERENCES trades(id), version INTEGER NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('original','amendment','partial','full','novation')),
+    effective TEXT NOT NULL, terms TEXT NOT NULL, actor INTEGER REFERENCES users(id),
+    PRIMARY KEY(trade_id,version)
+);
+CREATE TRIGGER IF NOT EXISTS versions_no_update BEFORE UPDATE ON desk_trade_versions
+BEGIN SELECT RAISE(ABORT,'trade versions are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS versions_no_delete BEFORE DELETE ON desk_trade_versions
+BEGIN SELECT RAISE(ABORT,'trade versions are append-only'); END;
+CREATE TABLE IF NOT EXISTS desk_lifecycle (
+    id INTEGER PRIMARY KEY, trade_id TEXT NOT NULL REFERENCES trades(id), event_type TEXT NOT NULL,
+    effective TEXT NOT NULL, base_version INTEGER NOT NULL, differences TEXT NOT NULL,
+    risk_flags TEXT NOT NULL, upload_sha256 TEXT, proposer INTEGER NOT NULL REFERENCES users(id),
+    note TEXT NOT NULL, reviewer INTEGER REFERENCES users(id), reason TEXT,
+    status TEXT NOT NULL DEFAULT 'Pending approval' CHECK(status IN ('Pending approval','Approved','Rejected')),
+    FOREIGN KEY(trade_id,base_version) REFERENCES desk_trade_versions(trade_id,version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_pending_lifecycle ON desk_lifecycle(trade_id) WHERE status='Pending approval';
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value REAL NOT NULL);
 INSERT OR IGNORE INTO settings VALUES ('lambda',1.0);
 CREATE TABLE IF NOT EXISTS audit (

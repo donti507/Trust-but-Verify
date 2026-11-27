@@ -11,7 +11,7 @@ import secrets
 import bcrypt
 from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
-from trustswap.desk import exceptions, exports, imports, matcher, presentation, store, upload_review, uploads
+from trustswap.desk import exceptions, exports, imports, lifecycle, matcher, presentation, store, upload_review, uploads
 
 
 def roles(*allowed):
@@ -58,7 +58,7 @@ def create_app(path="desk.db", *, secret=None):
     @app.before_request
     def authenticate():
         if request.method == "POST":
-            if request.endpoint == "upload_confirmation":
+            if request.endpoint in {"upload_confirmation", "propose_lifecycle"}:
                 request.max_content_length = uploads.MAX_BYTES + 64_000  # Allow multipart form overhead.
             expected = session.get("csrf", "")
             provided = request.form.get("csrf", "")
@@ -124,11 +124,13 @@ def create_app(path="desk.db", *, secret=None):
 
     def render_overview(import_report=None, error=None, submitted_lambda=None, upload_status=None, upload_id=""):
         db = database()
+        query = """SELECT trades.*, CASE WHEN EXISTS (
+                    SELECT 1 FROM desk_trade_versions WHERE trade_id=trades.id AND event_type='full')
+                    THEN 'Terminated' ELSE state END AS display_state FROM trades"""
         if g.user["role"] == "analyst":
-            rows = db.execute("SELECT * FROM trades WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id",
-                              (g.user["id"],))
+            rows = db.execute(query + " WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id", (g.user["id"],))
         else:
-            rows = db.execute("SELECT * FROM trades ORDER BY id")
+            rows = db.execute(query + " ORDER BY id")
         threshold = threshold_now(db)
         cases = exceptions.queue(db, analyst=g.user["id"] if g.user["role"] == "analyst" else None)
         overdue_only = request.args.get("overdue") == "1"
@@ -146,6 +148,10 @@ def create_app(path="desk.db", *, secret=None):
             abort(403)
         return trade
 
+    def require_active(trade_id):
+        if lifecycle.terminated(database(), trade_id):
+            abort(409, "The trade is terminated and read-only")
+
     def threshold_now(db):
         return db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
 
@@ -158,7 +164,7 @@ def create_app(path="desk.db", *, secret=None):
     def bulk_eligible(field):
         return not field["flagged"] and field["state"] in {"open", "rejected"}
 
-    def render_review(trade_id, error=None, submitted=None):
+    def render_review(trade_id, error=None, submitted=None, lifecycle_input=None):
         trade = trade_for_user(trade_id)
         db = database()
         threshold = threshold_now(db)
@@ -168,11 +174,17 @@ def create_app(path="desk.db", *, secret=None):
         case = db.execute("SELECT desk_cases.*,users.name AS owner_name FROM desk_cases "
                           "LEFT JOIN users ON owner=users.id WHERE trade_id=?", (trade_id,)).fetchone()
         analysts = exceptions.analyst_options(db) if case and g.user["role"] == "supervisor" else []
+        version = lifecycle.current(db, trade_id)
+        readonly = lifecycle.terminated(db, trade_id)
+        pending_change = db.execute("SELECT 1 FROM desk_lifecycle WHERE trade_id=? AND status='Pending approval'",
+                                    (trade_id,)).fetchone() is not None
         cleared = sum(field["state"] in {"accepted", "approved"} for field in fields)
         return render_template("review.html", trade=trade, fields=fields, groups=groups, segments=segments,
                                can_bulk_accept=any(bulk_eligible(field) for field in fields), threshold=threshold,
                                cleared=cleared, form_error=error, submitted=submitted or {}, upload=upload,
-                               case=case, analysts=analysts)
+                               case=case, analysts=analysts, readonly=readonly, version=version,
+                               lifecycle_types=lifecycle.EVENTS, lifecycle_input=lifecycle_input or {},
+                               pending_change=pending_change)
 
     @app.get("/trade/<trade_id>")
     @roles(*store.ROLES)
@@ -185,6 +197,7 @@ def create_app(path="desk.db", *, secret=None):
         db = database()
         with store.transaction(db):
             trade_for_user(trade_id)
+            require_active(trade_id)
             eligible = [field["path"] for field in comparison_rows(db, trade_id, threshold_now(db))
                         if bulk_eligible(field)]
             if eligible:
@@ -211,12 +224,14 @@ def create_app(path="desk.db", *, secret=None):
             return render_review(trade_id, "Proposed corrections need a value and note", submitted), 400
         if action == "propose":
             try:
+                imports._fictional(field, value)
                 if matcher.normalize(field, value) is None:
                     raise ValueError("Missing term")
             except (ValueError, ArithmeticError):
                 return render_review(trade_id, "Invalid proposed value", submitted), 400
         with store.transaction(db):
             trade_for_user(trade_id)
+            require_active(trade_id)
             row = db.execute("SELECT * FROM fields WHERE trade_id=? AND path=?", (trade_id, field)).fetchone()
             if row is None:
                 abort(404)
@@ -243,7 +258,9 @@ def create_app(path="desk.db", *, secret=None):
         rows = database().execute(
             """SELECT fields.*, users.name AS analyst FROM fields JOIN users ON users.id=proposer
             WHERE state='pending' ORDER BY trade_id,path""")
-        return render_template("approvals.html", pending=list(rows), form_error=error, submitted=submitted or {})
+        return render_template("approvals.html", pending=list(rows), form_error=error,
+                               submitted=submitted or {}, lifecycle_requests=lifecycle.requests(database()),
+                               field_label=imports.field_label)
 
     @app.post("/trade/<trade_id>/field/<field>/approval")
     @roles("supervisor")
@@ -256,6 +273,7 @@ def create_app(path="desk.db", *, secret=None):
                                     {"trade": trade_id, "field": field, "reason": raw_reason}), 400
         db = database()
         with store.transaction(db):
+            require_active(trade_id)
             row = db.execute("SELECT * FROM fields WHERE trade_id=? AND path=?", (trade_id, field)).fetchone()
             if row is None:
                 abort(404)
@@ -312,6 +330,8 @@ def create_app(path="desk.db", *, secret=None):
             return render_overview(error="Choose a confirmation and confirm that all parties are fictional",
                                    upload_id=reference), 400
         try:
+            if reference:
+                require_active(reference)
             upload = uploads.read_upload(file.read(uploads.MAX_BYTES + 1), file.filename)
             if upload.fields is None:
                 return render_overview(upload_status="Saved locally. External extraction is disabled.",
@@ -330,6 +350,7 @@ def create_app(path="desk.db", *, secret=None):
         if kind not in {"fpml", "swift"}:
             abort(404)
         trade = trade_for_user(trade_id)
+        require_active(trade_id)
         if trade["state"] != "Affirmed":
             abort(409, "Only affirmed trades can be exported")
         try:
@@ -349,6 +370,7 @@ def create_app(path="desk.db", *, secret=None):
             db = database()
             with store.transaction(db):
                 trade_for_user(trade_id)
+                require_active(trade_id)
                 exceptions.assign(db, trade_id, owner, g.user["id"])
         except ValueError as error:
             message = str(error) if request.form.get("owner", "").isdecimal() else "Select an analyst"
@@ -365,6 +387,7 @@ def create_app(path="desk.db", *, secret=None):
         try:
             with store.transaction(db):
                 trade_for_user(trade_id)
+                require_active(trade_id)
                 message = exceptions.chase(db, trade_id, g.user["id"], g.user["role"])
         except ValueError as error:
             return render_review(trade_id, str(error)), 409
@@ -380,10 +403,64 @@ def create_app(path="desk.db", *, secret=None):
         try:
             with store.transaction(db):
                 trade_for_user(trade_id)
+                require_active(trade_id)
                 exceptions.acknowledge(db, trade_id, g.user["id"], g.user["role"])
         except ValueError as error:
             return render_review(trade_id, str(error)), 409
         return redirect(url_for("review", trade_id=trade_id))
+
+    @app.get("/trade/<trade_id>/history")
+    @roles(*store.ROLES)
+    def history(trade_id):
+        trade = trade_for_user(trade_id)
+        db = database()
+        return render_template("history.html", trade=trade, versions=lifecycle.versions(db, trade_id),
+                               requests=lifecycle.requests(db, trade_id), field_label=imports.field_label)
+
+    @app.post("/trade/<trade_id>/lifecycle/propose")
+    @roles("analyst")
+    def propose_lifecycle(trade_id):
+        trade_for_user(trade_id)
+        require_active(trade_id)
+        db = database()
+        form = request.form.to_dict()
+        event_type = form.get("event_type")
+        file = request.files.get("confirmation")
+        attachment = None
+        try:
+            lifecycle._validate_trade(db, trade_id)
+            if file and file.filename:
+                if event_type != "amendment":
+                    raise ValueError("Attachments are supported for amendments")
+                if form.get("fictional") != "yes":
+                    raise ValueError("Confirm that the attachment and parties are fictional")
+                attachment = uploads.read_upload(file.read(uploads.MAX_BYTES + 1), file.filename)
+                if attachment.fields is None:
+                    raise ValueError("The attachment was saved locally. External extraction is disabled.")
+            with store.transaction(db):
+                trade_for_user(trade_id)
+                lifecycle.propose(db, trade_id, event_type, form, g.user["id"], attachment)
+        except (OSError, ValueError) as error:
+            message = str(error) if isinstance(error, ValueError) else "The attachment could not be read"
+            return render_review(trade_id, message, lifecycle_input=form), 400
+        return redirect(url_for("history", trade_id=trade_id))
+
+    @app.post("/lifecycle/<int:event_id>/decision")
+    @roles("supervisor")
+    def decide_lifecycle(event_id):
+        action = request.form.get("action")
+        reason = request.form.get("reason", "")
+        if action not in {"approve", "reject"}:
+            return render_approvals("Choose an approval decision"), 400
+        db = database()
+        try:
+            with store.transaction(db):
+                lifecycle.decide(db, event_id, g.user["id"], action == "approve", reason)
+        except PermissionError:
+            abort(403, "Self-approval is forbidden")
+        except ValueError as error:
+            return render_approvals(str(error)), 400
+        return redirect(url_for("approvals"))
 
     @app.get("/audit.<kind>")
     @roles("auditor", "supervisor")

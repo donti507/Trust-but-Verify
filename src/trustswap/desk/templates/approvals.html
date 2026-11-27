@@ -1,5 +1,18 @@
 {% extends 'base.html' %}
-{% block title %}Approvals{% endblock %}
+{% block title %}Approvals<section class="panel"><h2>Lifecycle approvals</h2>
+{% for row in lifecycle_requests %}
+<article><h3>{{ row.label }} · <a href="{{ url_for('history',trade_id=row.trade_id) }}">{{ row.trade_id }}</a></h3>
+<p>Effective {{ row.effective }} · Proposed by {{ row.analyst }}</p><p>{{ row.note }}</p>
+{% include 'lifecycle_diff.html' %}
+{% if row.proposer != g.user.id %}
+<form method="post" action="{{ url_for('decide_lifecycle',event_id=row.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>Reason <textarea name="reason" required></textarea></label>
+<div class="actions"><button name="action" value="approve">Approve {{ row.label|lower }}</button>
+<button name="action" value="reject" class="secondary">Reject {{ row.label|lower }}</button></div></form>
+{% else %}<p class="reasons">A different supervisor must review this request.</p>{% endif %}</article>
+{% else %}<p>No lifecycle requests pending.</p>{% endfor %}
+</section>
+{% endblock %}
 {% block content %}
 <section class="hero"><h1>Approvals inbox</h1><p>Booking changes require a second reviewer.</p>
 {% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
@@ -12,4 +25,17 @@
 <div class="actions"><button name="action" value="approve">Approve</button><button name="action" value="reject" class="secondary">Reject</button></div>
 </form>{% else %}<p class="reasons">A different supervisor must review this proposal.</p>{% endif %}</article>
 {% else %}<p>No pending proposals.</p>{% endfor %}</section>
+<section class="panel"><h2>Lifecycle approvals</h2>
+{% for row in lifecycle_requests %}
+<article><h3>{{ row.label }} · <a href="{{ url_for('history',trade_id=row.trade_id) }}">{{ row.trade_id }}</a></h3>
+<p>Effective {{ row.effective }} · Proposed by {{ row.analyst }}</p><p>{{ row.note }}</p>
+{% include 'lifecycle_diff.html' %}
+{% if row.proposer != g.user.id %}
+<form method="post" action="{{ url_for('decide_lifecycle',event_id=row.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><label>Reason <textarea name="reason" required></textarea></label>
+<div class="actions"><button name="action" value="approve">Approve {{ row.label|lower }}</button>
+<button name="action" value="reject" class="secondary">Reject {{ row.label|lower }}</button></div></form>
+{% else %}<p class="reasons">A different supervisor must review this request.</p>{% endif %}</article>
+{% else %}<p>No lifecycle requests pending.</p>{% endfor %}
+</section>
 {% endblock %}

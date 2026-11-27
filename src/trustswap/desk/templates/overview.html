@@ -54,6 +54,6 @@
 </section>
 <section class="panel responsive-table"><h2>Confirmations</h2>
 <table><thead><tr><th>Trade</th><th>Source</th><th>Status</th><th>Action</th></tr></thead>
-<tbody>{% for trade in trades %}<tr><th scope="row">{{ trade.id }}</th><td>{{ trade.source_collection }}</td><td><span class="tag {{ 'ok' if trade.state == 'Affirmed' else '' }}">{{ trade.state }}</span></td><td><a href="{{ url_for('review', trade_id=trade.id) }}">Open trade</a></td></tr>
+<tbody>{% for trade in trades %}<tr><th scope="row">{{ trade.id }}</th><td>{{ trade.source_collection }}</td><td><span class="tag {{ 'ok' if trade.display_state == 'Affirmed' else '' }}">{{ trade.display_state }}</span></td><td><a href="{{ url_for('review', trade_id=trade.id) }}">Open trade</a></td></tr>
 {% else %}<tr><td colspan="4">No trades assigned or available.</td></tr>{% endfor %}</tbody></table></section>
 {% endblock %}
