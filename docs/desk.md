@@ -48,3 +48,33 @@ Auditors and supervisors download CSV or JSON from Audit log. Exports preserve e
 the database blocks updates and deletes on audit records.
 
 Without arguments, `seed` reads `results/demo/index.html` and `feed/`. If the feed directory is absent, it uses feed days embedded in the replay page.
+
+## Upload and export confirmations
+
+Set `DESK_UPLOAD_DIR` to an absolute path outside any Git checkout. The desk saves
+uploads there by content hash with a 10 MB file limit. The Overview upload form is
+available to analysts and supervisors. Use fictional documents and the fictional
+party names already used by the demo.
+
+FIN MT360/MT361 and FpML swaps are parsed locally. The desk supports two-stream
+fixed/floating and floating/floating terms with constant notionals. It reads FIN
+party and notional fields and infers the payment interval from regular dated
+schedules. Exported FIN files contain the desk confirmation terms in tagged text.
+FpML imports and exports cover the same terms in two swap streams. Additional
+settlement instructions and complex schedules are outside the desk profile. These
+exports are for local interchange and review. [SWIFT message reference](https://www2.swift.com/knowledgecentre/rest/v1/publications/us3mb_20230720/2.0/us3mb_20230720.pdf?logDownload=true) · [FpML confirmation examples](https://www.fpml.org/spec/fpml-5-12-4-rec-1/html/confirmation/fpml-5-12-examples.html)
+
+A structured file can use its embedded trade ID, or you can enter a booking trade
+ID. The desk also tries the existing normalized booking key. When no booking
+matches, import a booking CSV for the new trade before clearing discrepancies.
+The Review page offers FIN and FpML downloads after affirmation.
+
+PDF, PNG, JPEG and TXT are saved locally with external extraction disabled by
+default. To process a fictional sample with the pinned extraction and scoring
+pipeline, set `DESK_ALLOW_EXTERNAL_LLM=true`, `DESK_RISK_MODEL` to the verified
+full-logistic JSON artifact described in `docs/daily_feed.md`, and
+`PCSS_BASE_URL` and `PCSS_API_KEY` in the desk process environment. Restart the
+desk and upload the sample. The desk reads the PDF text layer first and uses local
+Tesseract for scans. Install Tesseract on the host for OCR. External extraction
+sends extracted text to the configured provider and caches completions by input
+hash under the private upload directory.

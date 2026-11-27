@@ -10,7 +10,7 @@ import secrets
 import bcrypt
 from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
-from trustswap.desk import exports, imports, matcher, presentation, store
+from trustswap.desk import exports, imports, matcher, presentation, store, upload_review, uploads
 
 
 def roles(*allowed):
@@ -55,6 +55,8 @@ def create_app(path="desk.db", *, secret=None):
     @app.before_request
     def authenticate():
         if request.method == "POST":
+            if request.endpoint == "upload_confirmation":
+                request.max_content_length = uploads.MAX_BYTES + 64_000  # Allow multipart form overhead.
             expected = session.get("csrf", "")
             provided = request.form.get("csrf", "")
             if not expected or not hmac.compare_digest(expected.encode(), provided.encode()):
@@ -117,7 +119,7 @@ def create_app(path="desk.db", *, secret=None):
     def overview():
         return render_overview()
 
-    def render_overview(import_report=None, error=None, submitted_lambda=None):
+    def render_overview(import_report=None, error=None, submitted_lambda=None, upload_status=None, upload_id=""):
         db = database()
         if g.user["role"] == "analyst":
             rows = db.execute("SELECT * FROM trades WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id",
@@ -126,7 +128,8 @@ def create_app(path="desk.db", *, secret=None):
             rows = db.execute("SELECT * FROM trades ORDER BY id")
         threshold = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
         return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report,
-                               form_error=error, submitted_lambda=submitted_lambda)
+                               form_error=error, submitted_lambda=submitted_lambda, upload_status=upload_status,
+                               upload_id=upload_id, allow_external=upload_review.allow_external())
 
     def trade_for_user(trade_id):
         trade = database().execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
@@ -154,9 +157,11 @@ def create_app(path="desk.db", *, secret=None):
         threshold = threshold_now(db)
         fields = comparison_rows(db, trade_id, threshold)
         groups, segments = presentation.source_groups(trade["source"], fields)
+        upload = db.execute("SELECT kind FROM desk_uploads WHERE trade_id=?", (trade_id,)).fetchone()
         cleared = sum(field["state"] in {"accepted", "approved"} for field in fields)
         return render_template("review.html", trade=trade, fields=fields, groups=groups, segments=segments,
-                               can_bulk_accept=any(bulk_eligible(field) for field in fields), threshold=threshold, cleared=cleared, form_error=error, submitted=submitted or {})
+                               can_bulk_accept=any(bulk_eligible(field) for field in fields), threshold=threshold,
+                               cleared=cleared, form_error=error, submitted=submitted or {}, upload=upload)
 
     @app.get("/trade/<trade_id>")
     @roles(*store.ROLES)
@@ -282,6 +287,44 @@ def create_app(path="desk.db", *, secret=None):
         except (ValueError, UnicodeError, ArithmeticError):
             return render_overview(error="Invalid, ambiguous or already reviewed booking data"), 400
         return render_overview(import_report=report) if report.rejected else redirect(url_for("overview"))
+
+    @app.post("/confirmations/upload")
+    @roles("analyst", "supervisor")
+    def upload_confirmation():
+        file = request.files.get("confirmation")
+        reference = request.form.get("trade_id", "").strip()
+        if file is None or not file.filename or request.form.get("fictional") != "yes":
+            return render_overview(error="Choose a confirmation and confirm that all parties are fictional",
+                                   upload_id=reference), 400
+        try:
+            upload = uploads.read_upload(file.read(uploads.MAX_BYTES + 1), file.filename)
+            if upload.fields is None:
+                return render_overview(upload_status="Saved locally. External extraction is disabled.",
+                                       upload_id=reference), 202
+            trade_id = uploads.attach(database(), upload, g.user["id"], reference)
+        except ValueError as error:
+            return render_overview(error=str(error), upload_id=reference), 400
+        except OSError:
+            return render_overview(error="The desk could not access its local upload directory",
+                                   upload_id=reference), 400
+        return redirect(url_for("review", trade_id=trade_id))
+
+    @app.get("/trade/<trade_id>/export/<kind>")
+    @roles(*store.ROLES)
+    def export_confirmation(trade_id, kind):
+        if kind not in {"fpml", "swift"}:
+            abort(404)
+        trade = trade_for_user(trade_id)
+        if trade["state"] != "Affirmed":
+            abort(409, "Only affirmed trades can be exported")
+        try:
+            content = uploads.export(database(), trade_id, kind)
+        except ValueError as error:
+            return render_review(trade_id, str(error)), 409
+        extension, media_type = ("xml", "application/xml") if kind == "fpml" else ("fin", "text/plain")
+        return Response(content, mimetype=media_type, headers={
+            "Content-Disposition": f"attachment; filename=desk-confirmation.{extension}",
+        })
 
     @app.get("/audit.<kind>")
     @roles("auditor", "supervisor")

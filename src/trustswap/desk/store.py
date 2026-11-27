@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS field_evidence (
     trade_id TEXT NOT NULL, path TEXT NOT NULL, raw TEXT NOT NULL, span TEXT,
     PRIMARY KEY (trade_id,path), FOREIGN KEY (trade_id,path) REFERENCES fields(trade_id,path)
 );
+CREATE TABLE IF NOT EXISTS desk_uploads (
+    trade_id TEXT PRIMARY KEY REFERENCES trades(id), sha256 TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('pdf','png','jpeg','swift','fpml','text'))
+);
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value REAL NOT NULL);
 INSERT OR IGNORE INTO settings VALUES ('lambda',1.0);
 CREATE TABLE IF NOT EXISTS audit (

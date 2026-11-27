@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 description = "Verification and cost-aware abstention for AI-extracted swap terms"
 
 [project.optional-dependencies]
-desk = ["Flask>=3.1,<4", "bcrypt>=4,<6"]
+desk = ["Flask>=3.1,<4", "bcrypt>=4,<6", "defusedxml>=0.7,<1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
