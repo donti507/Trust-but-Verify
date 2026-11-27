@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Stats{% endblock %}
+{% macro percent(value) %}{{ '%.1f%%'|format(value * 100) if value is not none else '—' }}{% endmacro %}
+{% block content %}
+<section class="hero"><h1>Annotation stats</h1></section>
+<div class="summaries">
+{% for item in summaries %}<section class="panel">
+<h2>{{ item.role }}</h2>
+<dl>
+{% if item.screened is not none %}<dt>Documents screened</dt><dd>{{ item.screened }}</dd>{% endif %}
+<dt>Assigned</dt><dd>{{ item.assigned }}</dd>
+<dt>Started</dt><dd>{{ item.started }}</dd>
+<dt>Finalized</dt><dd>{{ item.final }}</dd>
+<dt>Fields flagged</dt><dd>{{ percent(item.flagged) }}</dd>
+<dt>Flagged fields changed after re-check</dt><dd>{{ percent(item.changed) }}</dd>
+<dt>Average active minutes per finalized document</dt><dd>{{ '%.1f'|format(item.minutes) if item.minutes is not none else '—' }}</dd>
+</dl></section>{% endfor %}
+</div>
+{% if overlap is not none %}
+<section class="panel overflow"><h2>Agreement on the overlap</h2>
+<form method="get" class="actions">
+<label>A1 annotation mode<select name="mode">
+{% for value, name in (('', 'All modes'), ('control', 'Blind control'), ('blind', 'Blind with checker'), ('prefill', 'Pre-fill with checker')) %}
+<option value="{{ value }}" {{ 'selected' if value == mode }}>{{ name }}</option>
+{% endfor %}
+</select></label><button class="secondary">Apply filter</button>
+</form>
+<p>{{ overlap }} independently finalized document pairs.</p>
+<table><thead><tr><th>Field</th><th>Paired labels</th><th>Status and value agree</th><th>Status κ</th></tr></thead>
+<tbody>{% for row in agreement %}
+<tr><th scope="row">{{ field_label(row.field) }}</th><td>{{ row.paired }}</td><td>{{ percent(row.agreement) }}</td>
+<td>{{ '%.3f'|format(row.kappa) if row.kappa is not none else '—' }}</td></tr>
+{% endfor %}</tbody></table>
+</section>
+{% endif %}
+{% endblock %}

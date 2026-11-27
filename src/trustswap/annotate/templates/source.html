@@ -1,0 +1,6 @@
+<section class="panel source-panel" aria-labelledby="source-title">
+<h2 id="source-title">Document text</h2>
+{% if selectable %}<p class="muted">Focus a field, then select its words in the document.</p>{% endif %}
+<textarea id="source-text" readonly spellcheck="false" aria-labelledby="source-title">{{ source.text }}</textarea>
+{% if selectable %}<button id="use-selection" type="button" class="secondary">Use selected text</button>{% endif %}
+</section>

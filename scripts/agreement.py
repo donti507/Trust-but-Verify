@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Compare independent human annotations; disagreements are never auto-resolved."""
 import argparse
-from collections import Counter
 import json
 from pathlib import Path
 
+from trustswap.common.agreement import cohen_kappa
 from trustswap.common.annotations import FIELDS, canonical_value
 if __package__:
     from .pilot_utils import read_annotations, write_csv, read_csv
@@ -13,18 +13,6 @@ else:
 
 ADJ_COLUMNS = ("doc_id", "field", "reason", "A1_status", "A1_value", "A1_span", "A2_status", "A2_value", "A2_span", "text_path")
 METRIC_COLUMNS = ("field", "paired", "unpaired", "value_exact_matches", "value_exact_rate", "status_kappa", "span_exact_matches", "field_exact_matches")
-
-
-def cohen_kappa(left, right):
-    if len(left) != len(right):
-        raise ValueError("status pairs must have equal lengths")
-    count = len(left)
-    if not count:
-        return None
-    a, b = Counter(left), Counter(right)
-    observed = sum(x == y for x, y in zip(left, right)) / count
-    expected = sum(a[status] * b[status] for status in a.keys() | b.keys()) / count ** 2
-    return None if expected == 1 else (observed - expected) / (1 - expected)
 
 
 def _disagreement(doc_id, field, reasons, a, b, text_path):

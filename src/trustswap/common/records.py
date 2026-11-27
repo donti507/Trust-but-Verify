@@ -106,6 +106,9 @@ class GoldRecord(BaseModel):
     generator: GeneratorMetadata | None = None
     annotators: list[str] | None = None
     adjudicated: bool | None = None
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    text_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    source_url: str | None = None
     parent_id: str | None = None
     defect: str | None = None
     severity: Literal[1, 2] | None = None
@@ -121,6 +124,8 @@ class GoldRecord(BaseModel):
                 raise ValueError("real gold requires human annotators and adjudication metadata, without generator")
         elif self.generator is None or self.annotators is not None or self.adjudicated is not None:
             raise ValueError("generated gold requires generator metadata, without annotator metadata")
+        if self.collection != "real" and any((self.sha256, self.text_sha256, self.source_url)):
+            raise ValueError("source provenance is only for real gold")
         _adversarial_metadata(self)
         return self
 
@@ -130,7 +135,7 @@ class GoldRecord(BaseModel):
         excluded = ("generator",) if self.collection == "real" else ("annotators", "adjudicated")
         for key in excluded:
             record.pop(key, None)
-        for key in ("parent_id", "defect"):
+        for key in ("parent_id", "defect", "sha256", "text_sha256", "source_url"):
             if record.get(key) is None:
                 record.pop(key, None)
         return _omit_empty_defect_fields(record)
