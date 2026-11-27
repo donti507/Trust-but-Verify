@@ -117,11 +117,16 @@ def test_budget_before_provider_and_model_cache(tmp_path):
 @pytest.mark.parametrize("error", [dtcc.NoFile("no DTCC file"), pipeline.FeedSkip("PCSS request failed"),
                                   pipeline.FeedSkip("60k daily token cap")])
 def test_expected_failures_exit_zero_without_publication(tmp_path, monkeypatch, capsys, error):
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    for name in ("model.json", "replay.json"):
+        (artifacts / name).write_text("{}")
+    monkeypatch.setattr(daily_feed.Inputs, "verify_bundle", lambda self: None)
     def stop(*args, **kwargs):
         raise error
     monkeypatch.setattr(daily_feed, "run", stop)
     args = ["--date", DAY.isoformat(), "--feed-dir", str(tmp_path / "feed"), "--site", str(tmp_path / "site"),
-            "--replay", str(tmp_path / "unused"), "--risk-model", str(tmp_path / "unused")]
+            "--cache", str(tmp_path / "cache")]
     assert daily_feed.main(args) == 0
     assert "Skipped:" in capsys.readouterr().out
-    assert not list(tmp_path.iterdir())
+    assert not (tmp_path / "site").exists() and not (tmp_path / "feed").exists()
