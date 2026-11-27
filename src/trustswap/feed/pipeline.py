@@ -95,8 +95,12 @@ class ReviewPipeline:
             item = sample["fields"].get(row.field, {})
             rules = [key for key, data in verified["rules"].items()
                      if data.get(row.field, {}).get("verdict") in {"HARD", "SOFT"}]
+            leg, _, _ = row.field.rpartition(".")
+            leg_name = {"fixed_leg": "fixed leg", "floating_leg": "floating leg",
+                        "floating_leg_2": "second floating leg"}.get(leg)
+            label = term.replace("_", " ").capitalize()
             fields.append({
-                "field": row.field, "name": row.field.replace("_", " ").replace(".", " · ").capitalize(),
+                "field": row.field, "name": f"{label} ({leg_name})" if leg_name else label,
                 "value": item.get("value"), "raw_value": item.get("raw_value"), "span": item.get("span"),
                 "p": float(probability), "c_bar": float(cost), "r": float(review), "e": int(row.e),
                 "severity": SEVERITY[term], "rules_fired": rules, "action": "Review" if sent else "Accept",

@@ -114,6 +114,16 @@ def test_demo_embeds_two_documents_and_needs_no_network(tmp_path):
     assert not re.search(r"<(?:script|link)\b[^>]+(?:src|href)=", html, re.IGNORECASE)
     assert "default-src 'none'" in html
     assert "excluded" not in html
+    for doc in documents:
+        assert doc["category"] in build_demo.CATEGORIES
+        for field in doc["fields"]:
+            assert 0 <= field["p"] <= 1
+            assert field["e"] in (0, 1)
+            assert field["severity"] in {"critical", "major", "minor"}
+            assert set(field["rules_fired"]) <= set(build_demo.RULE_TEXT)
+            if field["span"] is not None:
+                a, b = field["span"]
+                assert doc["text"][a:b] == field["raw_value"]
     clean, conflict = documents
     assert clean["fields"][0]["value"] == 25_000_000
     field = conflict["fields"][0]

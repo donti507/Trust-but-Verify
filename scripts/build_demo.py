@@ -54,7 +54,7 @@ def _span(span, length: int):
     return None
 
 
-def load_documents(data: Path, cache: Path, model: str, costs: Costs, n: int) -> list[dict]:
+def load_documents(data: Path, cache: Path, model: str, costs: Costs, n: int, *, cached_text_only=False) -> list[dict]:
     """Select eligible cached documents by category, prioritizing review or errors at lambda 1."""
     risks = pd.read_parquet(
         cache / "risk" / f"{model}.parquet", engine="pyarrow",
@@ -78,9 +78,12 @@ def load_documents(data: Path, cache: Path, model: str, costs: Costs, n: int) ->
                 continue
             extract = cache / "extract" / model / f"{doc_id}.jsonl"
             verify = cache / "verify" / model / f"{doc_id}.json"
-            path = Path(manifest["text_path"])
+            fallback = base / "text" / f"{doc_id}.txt"
+            path = fallback if cached_text_only else Path(manifest["text_path"])
             if not path.is_file():
-                path = base / "text" / f"{doc_id}.txt"
+                path = fallback
+            if cached_text_only and not path.resolve().is_relative_to(base.resolve()):
+                continue
             if not (path.is_file() and extract.is_file() and verify.is_file()):
                 continue
             if path.resolve().is_relative_to((data / "real").resolve()):
@@ -111,6 +114,8 @@ def load_documents(data: Path, cache: Path, model: str, costs: Costs, n: int) ->
                     value = item.get("value")
                     entries.append({
                         "name": _name(row.field),
+                        "field": row.field,
+                        "raw_value": item.get("raw_value"),
                         "value": item.get("raw_value") if value is None else value,
                         "span": _span(item.get("span"), len(text)),
                         "p": row.p_full_logistic, "c_bar": row.c_bar, "r": row.r,
