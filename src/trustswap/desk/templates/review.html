@@ -2,6 +2,11 @@
 {% block title %}Review {{ trade.id }}{% endblock %}
 {% block content %}
 <section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ trade.state }}</p>
+{% if upload and upload.kind in ('fpml','swift') %}<p>Structured format import · booking comparison</p>{% endif %}
+{% if trade.state == 'Affirmed' %}
+<div class="actions"><a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='fpml') }}">Download FpML</a>
+<a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='swift') }}">Download FIN</a></div>
+{% endif %}
 <p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>
 {% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
 <div class="review-layout">
