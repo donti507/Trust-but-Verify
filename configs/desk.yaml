@@ -1,0 +1,5 @@
+sla:
+  critical_hours: 4
+  major_business_days: 1
+  minor_days: 2
+  business_centers: [USNY]

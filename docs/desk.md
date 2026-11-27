@@ -78,3 +78,22 @@ desk and upload the sample. The desk reads the PDF text layer first and uses loc
 Tesseract for scans. Install Tesseract on the host for OCR. External extraction
 sends extracted text to the configured provider and caches completions by input
 hash under the private upload directory.
+
+## Exceptions and response deadlines
+
+The exception queue tracks trades with open review flags or booking differences.
+The case priority is the largest severity weight times field risk on the trade.
+Supervisors assign cases to analysts. Analysts see assigned and unassigned cases
+from My queue and can filter overdue cases. Overview shows the SLA buckets and
+average time from opening to resolution.
+
+`configs/desk.yaml` sets deadlines in UTC. Critical cases have four elapsed hours,
+major cases have one business day on the configured QuantLib calendar, and minor
+cases have two elapsed days. The age turns amber halfway to the deadline and red
+at the deadline.
+
+An assigned analyst or supervisor can open a counterparty draft or download it
+as an `.eml` file with fictional addresses. Drafting records an audit event and
+sets the case to Waiting for counterparty. Record the reply to return the case to
+Assigned. Pending corrections route to Pending approval. Clearing the outstanding
+issues resolves the case.
