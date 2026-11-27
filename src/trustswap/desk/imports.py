@@ -38,6 +38,29 @@ def _trade_id(value):
     return value
 
 
+ADDRESSES = (
+    "Synthetic Party A, 1 Example Street, Example City",
+    "Synthetic Party B, 1 Example Street, Example City",
+)
+
+
+def _ocr_key(value):
+    # Fold common OCR confusions and spacing so noisy copies map to the fictional original.
+    return re.sub(r"\s+", "", value).lower().translate(str.maketrans("l|i0", "111o"))
+
+
+def _canonical(path, value):
+    """Return the fictional booking value for an extracted value, allowing OCR noise."""
+    if matcher.missing(value) or not isinstance(value, str):
+        return value
+    term = path.rsplit(".", 1)[-1]
+    options = ADDRESSES if term == "notice_address" else PARTIES if term in {"payer", "receiver"} else ()
+    for option in options:
+        if _ocr_key(value) == _ocr_key(option):
+            return option
+    return value
+
+
 def _fictional(path, value):
     if matcher.missing(value):
         return
@@ -92,11 +115,14 @@ def _evidence(doc):
         if path not in FIELD_PATHS or path in fields:
             raise ValueError("Unsupported or duplicate confirmation field")
         raw = field.get("value")
-        _fictional(path, raw)
+        if isinstance(raw, str) and raw.strip().lower() == "none":
+            raw = None
+        booked = _canonical(path, raw)
+        _fictional(path, booked)
         p, c, r = (float(field[key]) for key in ("p", "c_bar", "r"))
         if not (0 <= p <= 1 and all(math.isfinite(x) and x >= 0 for x in (c, r))):
             raise ValueError("Invalid cached field risk or cost")
-        fields[path] = {"confirmation": raw, "booking": raw, "p": p, "c": c, "r": r}
+        fields[path] = {"confirmation": raw, "booking": booked, "p": p, "c": c, "r": r}
     if not fields:
         raise ValueError("A confirmation needs extracted fields")
     return fields
