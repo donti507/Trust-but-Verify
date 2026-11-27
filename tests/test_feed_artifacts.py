@@ -102,3 +102,57 @@ def test_runner_rejects_tampered_bundle_before_fetch(fitted, tmp_path, monkeypat
         daily_feed.main(["--date", "2026-11-23", "--feed-dir", str(tmp_path / "feed"),
                          "--site", str(tmp_path / "index.html"), "--cache", str(tmp_path / "cache")])
     assert not (tmp_path / "feed").exists() and not (tmp_path / "index.html").exists()
+
+
+def test_bundle_drives_a_complete_offline_manual_run(fitted, tmp_path, monkeypatch):
+    from datetime import date
+
+    from test_daily_feed import market_file
+    from trustswap.extract.clients import Completion
+    from trustswap.extract.prompt import gold_answer
+    from trustswap.feed.dtcc import select_trades
+    from trustswap.feed.render import render_batch
+
+    model, _ = fitted
+    bundle = tmp_path / "artifacts"
+    bundle.mkdir()
+    (bundle / "model.json").write_text(json.dumps(export_model(model)))
+    (bundle / "replay.json").write_text(json.dumps(replay_from_page(render_page(documents(), 100))))
+    day, source = date(2026, 11, 23), date(2026, 11, 20)
+    archive = market_file()
+    rendered = list(render_batch(select_trades(archive, source), day))
+    completed = iter(rendered)
+    calls = []
+
+    class Fake:
+        params = {"max_tokens": 4096}
+
+        def __init__(self, spec, timeout):
+            assert spec.api_key_env == "PCSS_API_KEY" and spec.base_url_env == "PCSS_BASE_URL"
+
+        def complete(self, messages, **kwargs):
+            doc = next(completed)
+            calls.append(doc.doc_id)
+            return Completion(json.dumps(gold_answer(doc.gold.trade, doc.text)),
+                              finish_reason="stop", input_tokens=100, output_tokens=100)
+
+    def download(when):
+        assert when == source
+        return archive
+
+    monkeypatch.setenv("PCSS_API_KEY", "fixture-placeholder")
+    monkeypatch.setenv("PCSS_BASE_URL", "fixture-placeholder")
+    monkeypatch.setattr(daily_feed.dtcc, "download", download)
+    monkeypatch.setattr(daily_feed, "SingleAttemptClient", Fake)
+    monkeypatch.setattr(daily_feed, "render_batch", lambda trades, when: iter(rendered))
+    html = tmp_path / "index.html"
+    args = ["--date", day.isoformat(), "--feed-dir", str(tmp_path / "feed"),
+            "--site", str(html), "--cache", str(tmp_path / "cache")]
+    assert daily_feed.main(args) == 0
+    encoded = html.read_text()
+    published = json.loads((tmp_path / "feed" / f"{day}.json").read_text())
+    assert len(published["documents"]) == len(calls) == 5
+    assert published["collection"] == "live_feed"
+    assert len(replay_from_page(encoded)["documents"]) == 30
+    assert daily_feed.main(args) == 0
+    assert len(calls) == 5 and html.read_text() == encoded
