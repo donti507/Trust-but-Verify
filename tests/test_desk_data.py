@@ -161,3 +161,21 @@ def test_csv_cli_reports_rejected_lines_and_validates_headers(setup, tmp_path, c
     file.write_text("trade_id,unsupported\nfictional-01,invalid\n", encoding="utf-8")
     assert booking_cli.main([str(file), "--db", str(path)]) == 1
     assert "CSV headers" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("noisy", [
+    "Synthetic Party A, l Example Street, Example City",
+    "Synthetic Party A, 1ExampleStreet, Example City",
+    "Synthetic Party A, 1Example Street, Example City",
+])
+def test_ocr_noisy_fictional_address_books_the_clean_value(noisy):
+    path = next(p for p in imports.FIELD_PATHS if p.endswith("notice_address"))
+    fields = imports._evidence({"fields": [{"field": path, "value": noisy, "p": 0.1, "c_bar": 1, "r": 1}]})
+    assert fields[path]["confirmation"] == noisy
+    assert fields[path]["booking"] == "Synthetic Party A, 1 Example Street, Example City"
+
+
+def test_non_fictional_address_still_rejected():
+    path = next(p for p in imports.FIELD_PATHS if p.endswith("notice_address"))
+    with pytest.raises(ValueError, match="fictional"):
+        imports._evidence({"fields": [{"field": path, "value": "10 Downing Street, London", "p": 0.1, "c_bar": 1, "r": 1}]})
