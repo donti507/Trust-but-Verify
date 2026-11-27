@@ -12,9 +12,9 @@ class Term:
     severity: str = "critical"
 
 
-DATE = Term("Trade date", "trade_date", "major")
-EFFECTIVE = Term("Effective date", "trade_date", "major")
-MATURITY = Term("Maturity date", "trade_date", "major")
+DATE = Term("Trade date", "trade_date")
+EFFECTIVE = Term("Effective date", "trade_date")
+MATURITY = Term("Maturity date", "trade_date")
 
 PRODUCTS = {
     "fx_forward": ("FX forward", fx_forward.FXForward, {"trade_date": DATE,

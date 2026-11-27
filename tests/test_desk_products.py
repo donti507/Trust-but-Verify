@@ -20,6 +20,7 @@ def as_document(kind, terms):
 
 
 @pytest.mark.parametrize(("kind", "field", "bad", "text"), [
+    ("fx_forward", "trade_date", None, "critical term is missing"),
     ("fx_forward", "value_date", "2025-01-01", "earlier"),
     ("fx_forward", "forward_rate", "1.50", "more than 20%"),
     ("xccy_swap", "exchange_initial", None, "critical term is missing"),
