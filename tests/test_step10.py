@@ -447,6 +447,7 @@ def test_truncated_call_is_retried_once_with_a_larger_limit(documents, tmp_path)
     ("floating_leg.spread", ": -.5% /", -0.005),
     ("floating_leg.spread", ".5%", 0.005),
     ("fixed_leg.fixed_rate", "- 4.06% p.a.;", 0.0406),
+    ("fixed_leg.fixed_rate", "4.06%\tp.a.", 0.0406),
     ("fixed_leg.payer", "Example & Co.", "Example & Co."),
 ])
 def test_typed_separator_cleanup_preserves_original_evidence(field, raw_value, expected):

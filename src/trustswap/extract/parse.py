@@ -110,7 +110,8 @@ def trim_value(path: str, raw_value: str) -> str:
     # separated from digits by whitespace is a document delimiter.
     prefixed = _SIGNED_PREFIX.sub("", raw_value)
     trimmed = _SUFFIX.sub("", prefixed)
-    if name in _RATES and trimmed.casefold().endswith(" p.a") and prefixed[len(trimmed):].startswith("."):
+    if (name in _RATES and re.search(r"\sp\.a$", trimmed, re.IGNORECASE)
+            and prefixed[len(trimmed):].startswith(".")):
         return trimmed + "."
     return trimmed
 
