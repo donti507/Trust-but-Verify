@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Desk request{% endblock %}
+{% block content %}
+<section class="panel">
+<h1>{{ error.name }}</h1>
+<p class="form-error" role="alert">{{ error.description }}</p>
+{% if g.user %}<a href="{{ url_for('overview') }}">Return to overview</a>
+{% else %}<a href="{{ url_for('login') }}">Return to sign in</a>{% endif %}
+</section>
+{% endblock %}

@@ -1,5 +1,6 @@
 """Compare normalized confirmation and booking fields without changing either."""
 from decimal import Decimal
+import re
 
 from trustswap.common.annotations import normalise_field
 from trustswap.common.normalise import normalise_rate
@@ -14,17 +15,22 @@ KEY_FIELDS = (
 )
 
 
+def clean(value):
+    return re.sub(r"^[\s/:|]+", "", value).strip() if isinstance(value, str) else value
+
+
 def missing(value):
-    return value is None or (isinstance(value, str) and not value.strip())
+    return value is None or (isinstance(value, str) and not clean(value))
 
 
 def normalize(field, value):
     if missing(value):
         return None
+    value = clean(value)
     name = field.rsplit(".", 1)[-1]
     if name in {"fixed_rate", "spread"}:
         text = str(value).strip()
-        inferred = "%" in text or "bp" in text.casefold()
+        inferred = bool(re.search(r"%|per ?cent|bps?|basis points?", text, re.I))
         return normalise_rate(text, unit=None if inferred else "decimal", is_spread=name == "spread")
     if name == "business_centers" and isinstance(value, list):
         value = ", ".join(value)

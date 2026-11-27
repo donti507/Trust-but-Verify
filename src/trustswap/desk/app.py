@@ -10,8 +10,7 @@ import secrets
 import bcrypt
 from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
-from trustswap.decide.policy import escalate
-from trustswap.desk import exports, imports, matcher, store
+from trustswap.desk import exports, imports, matcher, presentation, store
 
 
 def roles(*allowed):
@@ -64,6 +63,14 @@ def create_app(path="desk.db", *, secret=None):
         uid = session.get("uid")
         g.user = database().execute("SELECT id,name,role FROM users WHERE id=?", (uid,)).fetchone() if uid else None
 
+    @app.errorhandler(400)
+    @app.errorhandler(403)
+    @app.errorhandler(404)
+    @app.errorhandler(409)
+    @app.errorhandler(413)
+    def friendly_error(error):
+        return render_template("error.html", error=error), error.code
+
     @app.teardown_appcontext
     def close_db(error):
         db = g.pop("db", None)
@@ -80,9 +87,11 @@ def create_app(path="desk.db", *, secret=None):
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = ""
+        username = ""
         if request.method == "POST":
             db = database()
-            user = db.execute("SELECT * FROM users WHERE name=?", (request.form.get("username", "").strip(),)).fetchone()
+            username = request.form.get("username", "")
+            user = db.execute("SELECT * FROM users WHERE name=?", (username.strip(),)).fetchone()
             password = request.form.get("password", "").encode()
             valid = len(password) <= 72 and bcrypt.checkpw(password, user["password"] if user else dummy_hash)
             if valid and user:
@@ -93,7 +102,7 @@ def create_app(path="desk.db", *, secret=None):
                     store.event(db, user["id"], "login")
                 return redirect(url_for("overview"))
             error = "Invalid username or password"
-        return render_template("login.html", error=error), (401 if error else 200)
+        return render_template("login.html", error=error, username=username), (401 if error else 200)
 
     @app.post("/logout")
     @roles(*store.ROLES)
@@ -108,7 +117,7 @@ def create_app(path="desk.db", *, secret=None):
     def overview():
         return render_overview()
 
-    def render_overview(import_report=None):
+    def render_overview(import_report=None, error=None, submitted_lambda=None):
         db = database()
         if g.user["role"] == "analyst":
             rows = db.execute("SELECT * FROM trades WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id",
@@ -116,7 +125,8 @@ def create_app(path="desk.db", *, secret=None):
         else:
             rows = db.execute("SELECT * FROM trades ORDER BY id")
         threshold = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
-        return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report)
+        return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report,
+                               form_error=error, submitted_lambda=submitted_lambda)
 
     def trade_for_user(trade_id):
         trade = database().execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
@@ -126,43 +136,75 @@ def create_app(path="desk.db", *, secret=None):
             abort(403)
         return trade
 
+    def threshold_now(db):
+        return db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
+
+    def comparison_rows(db, trade_id, threshold):
+        rows = db.execute("""SELECT fields.*, field_evidence.raw, field_evidence.span FROM fields
+                           LEFT JOIN field_evidence USING (trade_id,path)
+                           WHERE trade_id=? ORDER BY path""", (trade_id,))
+        return [presentation.comparison(row, threshold) for row in rows]
+
+    def bulk_eligible(field):
+        return not field["flagged"] and field["state"] in {"open", "rejected"}
+
+    def render_review(trade_id, error=None, submitted=None):
+        trade = trade_for_user(trade_id)
+        db = database()
+        threshold = threshold_now(db)
+        fields = comparison_rows(db, trade_id, threshold)
+        groups, segments = presentation.source_groups(trade["source"], fields)
+        cleared = sum(field["state"] in {"accepted", "approved"} for field in fields)
+        return render_template("review.html", trade=trade, fields=fields, groups=groups, segments=segments,
+                               can_bulk_accept=any(bulk_eligible(field) for field in fields), threshold=threshold, cleared=cleared, form_error=error, submitted=submitted or {})
+
     @app.get("/trade/<trade_id>")
     @roles(*store.ROLES)
     def review(trade_id):
-        trade = trade_for_user(trade_id)
+        return render_review(trade_id)
+
+    @app.post("/trade/<trade_id>/accept-matched")
+    @roles("analyst")
+    def accept_matched(trade_id):
         db = database()
-        threshold = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
-        fields = []
-        for row in db.execute("SELECT * FROM fields WHERE trade_id=? ORDER BY path", (trade_id,)):
-            field = dict(row)
-            field["confirmation"] = json.loads(row["confirmation"])
-            field["booking"] = json.loads(row["booking"])
-            field["match"] = matcher.match(row["path"], field["confirmation"], field["booking"])
-            field["risk"] = bool(escalate(row["p"], row["c"], row["r"], threshold))
-            fields.append(field)
-        return render_template("review.html", trade=trade, fields=fields, threshold=threshold)
+        with store.transaction(db):
+            trade_for_user(trade_id)
+            eligible = [field["path"] for field in comparison_rows(db, trade_id, threshold_now(db))
+                        if bulk_eligible(field)]
+            if eligible:
+                db.execute("UPDATE trades SET assigned_to=? WHERE id=? AND assigned_to IS NULL",
+                           (g.user["id"], trade_id))
+            for path in eligible:
+                db.execute("UPDATE fields SET state='accepted' WHERE trade_id=? AND path=?", (trade_id, path))
+                store.event(db, g.user["id"], "field_accepted", trade_id, path, via="matched_low_risk")
+            store.affirm_if_complete(db, trade_id, g.user["id"])
+        return redirect(url_for("review", trade_id=trade_id))
 
     @app.post("/trade/<trade_id>/field/<field>/review")
     @roles("analyst")
     def review_field(trade_id, field):
         db = database()
         action = request.form.get("action")
-        note = request.form.get("note", "").strip()
-        value = request.form.get("value", "").strip()
+        submitted = {"field": field, "note": request.form.get("note", ""), "value": request.form.get("value", "")}
+        note, value = submitted["note"].strip(), submitted["value"].strip()
+        trade_for_user(trade_id)
+        if not db.execute("SELECT 1 FROM fields WHERE trade_id=? AND path=?", (trade_id, field)).fetchone():
+            abort(404)
         if action not in {"accept", "propose"} or (action == "propose" and not (note and value)):
-            abort(400, "Proposed corrections need a value and note")
+            return render_review(trade_id, "Proposed corrections need a value and note", submitted), 400
         if action == "propose":
             try:
-                matcher.normalize(field, value)
+                if matcher.normalize(field, value) is None:
+                    raise ValueError("Missing term")
             except (ValueError, ArithmeticError):
-                abort(400, "Invalid proposed value")
+                return render_review(trade_id, "Invalid proposed value", submitted), 400
         with store.transaction(db):
             trade_for_user(trade_id)
             row = db.execute("SELECT * FROM fields WHERE trade_id=? AND path=?", (trade_id, field)).fetchone()
             if row is None:
                 abort(404)
             if row["state"] not in {"open", "rejected"}:
-                abort(409, "This field already has a review decision")
+                return render_review(trade_id, "This field already has a review decision", submitted), 409
             db.execute("UPDATE trades SET assigned_to=? WHERE id=? AND assigned_to IS NULL", (g.user["id"], trade_id))
             if action == "accept":
                 db.execute("UPDATE fields SET state='accepted' WHERE trade_id=? AND path=?", (trade_id, field))
@@ -177,25 +219,30 @@ def create_app(path="desk.db", *, secret=None):
     @app.get("/approvals")
     @roles("supervisor")
     def approvals():
+        return render_approvals()
+
+    def render_approvals(error=None, submitted=None):
         rows = database().execute(
             """SELECT fields.*, users.name AS analyst FROM fields JOIN users ON users.id=proposer
             WHERE state='pending' ORDER BY trade_id,path""")
-        return render_template("approvals.html", pending=list(rows))
+        return render_template("approvals.html", pending=list(rows), form_error=error, submitted=submitted or {})
 
     @app.post("/trade/<trade_id>/field/<field>/approval")
     @roles("supervisor")
     def approval(trade_id, field):
         status = request.form.get("action")
-        reason = request.form.get("reason", "").strip()
+        raw_reason = request.form.get("reason", "")
+        reason = raw_reason.strip()
         if status not in {"approve", "reject"} or not reason:
-            abort(400, "Approval decisions need a reason")
+            return render_approvals("Approval decisions need a reason",
+                                    {"trade": trade_id, "field": field, "reason": raw_reason}), 400
         db = database()
         with store.transaction(db):
             row = db.execute("SELECT * FROM fields WHERE trade_id=? AND path=?", (trade_id, field)).fetchone()
             if row is None:
                 abort(404)
             if row["state"] != "pending":
-                abort(409, "This proposal is no longer pending")
+                return render_approvals("This proposal is no longer pending"), 409
             if row["proposer"] == g.user["id"]:
                 abort(403, "Self-approval is forbidden")
             approved = status == "approve"
@@ -210,12 +257,13 @@ def create_app(path="desk.db", *, secret=None):
     @app.post("/settings/lambda")
     @roles("supervisor")
     def change_lambda():
+        submitted = request.form.get("lambda", "")
         try:
-            value = float(request.form.get("lambda", ""))
+            value = float(submitted)
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Invalid lambda")
         except ValueError:
-            abort(400, "Invalid lambda")
-        if not math.isfinite(value) or value < 0:
-            abort(400, "Invalid lambda")
+            return render_overview(error="Enter a finite nonnegative threshold", submitted_lambda=submitted), 400
         db = database()
         with store.transaction(db):
             old = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
@@ -228,11 +276,11 @@ def create_app(path="desk.db", *, secret=None):
     def upload_bookings():
         file = request.files.get("bookings")
         if file is None:
-            abort(400, "Select a booking CSV")
+            return render_overview(error="Select a booking CSV"), 400
         try:
             report = imports.import_upload(database(), file.read(), g.user["id"])
         except (ValueError, UnicodeError, ArithmeticError):
-            abort(400, "Invalid, ambiguous or already reviewed booking data")
+            return render_overview(error="Invalid, ambiguous or already reviewed booking data"), 400
         return render_overview(import_report=report) if report.rejected else redirect(url_for("overview"))
 
     @app.get("/audit.<kind>")
