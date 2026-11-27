@@ -8,10 +8,10 @@ import os
 import secrets
 
 import bcrypt
-from flask import Flask, abort, g, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
 from trustswap.decide.policy import escalate
-from trustswap.desk import matcher, store
+from trustswap.desk import exports, imports, matcher, store
 
 
 def roles(*allowed):
@@ -106,6 +106,9 @@ def create_app(path="desk.db", *, secret=None):
     @app.get("/")
     @roles(*store.ROLES)
     def overview():
+        return render_overview()
+
+    def render_overview(import_report=None):
         db = database()
         if g.user["role"] == "analyst":
             rows = db.execute("SELECT * FROM trades WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id",
@@ -113,7 +116,7 @@ def create_app(path="desk.db", *, secret=None):
         else:
             rows = db.execute("SELECT * FROM trades ORDER BY id")
         threshold = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
-        return render_template("overview.html", trades=list(rows), threshold=threshold)
+        return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report)
 
     def trade_for_user(trade_id):
         trade = database().execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
@@ -220,10 +223,30 @@ def create_app(path="desk.db", *, secret=None):
             store.event(db, g.user["id"], "lambda_changed", old=old, new=value)
         return redirect(url_for("overview"))
 
+    @app.post("/bookings/import")
+    @roles("supervisor")
+    def upload_bookings():
+        file = request.files.get("bookings")
+        if file is None:
+            abort(400, "Select a booking CSV")
+        try:
+            report = imports.import_upload(database(), file.read(), g.user["id"])
+        except (ValueError, UnicodeError, ArithmeticError):
+            abort(400, "Invalid, ambiguous or already reviewed booking data")
+        return render_overview(import_report=report) if report.rejected else redirect(url_for("overview"))
+
+    @app.get("/audit.<kind>")
+    @roles("auditor", "supervisor")
+    def download_audit(kind):
+        if kind not in {"csv", "json"}:
+            abort(404)
+        data, content_type = exports.export(database(), kind)
+        return Response(data, mimetype=content_type,
+                        headers={"Content-Disposition": f"attachment; filename=desk-audit.{kind}"})
+
     @app.get("/audit")
-    @roles("auditor")
+    @roles("auditor", "supervisor")
     def audit_log():
-        rows = database().execute("SELECT audit.*,users.name FROM audit LEFT JOIN users ON actor=users.id ORDER BY audit.id")
-        return render_template("audit.html", events=list(rows))
+        return render_template("audit.html", events=list(exports.audit_rows(database())))
 
     return app

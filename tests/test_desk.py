@@ -66,7 +66,7 @@ def test_permissions_matrix_and_csrf(setup, role):
     client = auth(app, role)
     assert client.get("/").status_code == client.get("/trade/fictional-01").status_code == 200
     assert client.get("/approvals").status_code == (200 if role == "supervisor" else 403)
-    assert client.get("/audit").status_code == (200 if role == "auditor" else 403)
+    assert client.get("/audit").status_code == (200 if role in {"auditor", "supervisor"} else 403)
     assert post(client, "/settings/lambda", **{"lambda": "2"}).status_code == (302 if role == "supervisor" else 403)
     assert post(client, path("review"), action="accept").status_code == (302 if role == "analyst" else 403)
     assert post(client, path("approval"), action="approve", reason="Checked").status_code == (
