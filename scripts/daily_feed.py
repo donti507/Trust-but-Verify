@@ -1,5 +1,6 @@
 """Prepare the weekday DTCC feed and Pages snapshot without changing research data."""
 import argparse
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from functools import cached_property
 import fcntl
@@ -7,9 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
-import re
 
-import joblib
 import yaml
 
 from trustswap.common.cache import Cache
@@ -18,14 +17,15 @@ from trustswap.extract.clients import load_models
 from trustswap.extract.prompt import prompt_sha
 from trustswap.verify.evaluate import verifier_hash
 from trustswap.feed import dtcc
+from trustswap.feed.artifacts import PortableRisk, read_json, validate_replay
 from trustswap.feed.pipeline import BudgetedClient, FeedSkip, ReviewPipeline, SingleAttemptClient
 from trustswap.feed.publish import run
 from trustswap.feed.render import render_batch
 
 if __package__:
-    from .build_demo import CATEGORIES, render_page
+    from .build_demo import render_page
 else:
-    from build_demo import CATEGORIES, render_page
+    from build_demo import render_page
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,13 +36,19 @@ class Inputs:
 
     @cached_property
     def replay(self):
-        match = re.search(r'<script type="application/json" id="demo-data">(.*?)</script>',
-                          self.args.replay.read_text(encoding="utf-8"), re.S)
-        data = json.loads(match[1])
-        docs = data["documents"]
-        if len(docs) != 30 or any(doc["category"] not in CATEGORIES for doc in docs) or data.get("illustrative"):
-            raise ValueError("Replay must contain 30 cached generated confirmations")
-        return data
+        return validate_replay(read_json(self.args.artifacts / "replay.json"))
+
+    @cached_property
+    def risk(self):
+        return PortableRisk.from_payload(read_json(self.args.artifacts / "model.json"))
+
+    @cached_property
+    def costs(self):
+        return load_costs()
+
+    def verify_bundle(self):
+        if self.costs.B != self.replay["bound"] or not self.risk.columns:
+            raise ValueError("Replay and model must use a valid document loss bound and feature list")
 
     @cached_property
     def scorer(self):
@@ -52,17 +58,14 @@ class Inputs:
             raise FeedSkip("Frozen v1 prompt fingerprint differs")
         if verifier_hash() != verifier["verifier_hash"]:
             raise FeedSkip("Pinned verifier fingerprint differs")
-        spec = load_models()["frontier"]
+        spec = replace(load_models()["frontier"], base_url_env="PCSS_BASE_URL", api_key_env="PCSS_API_KEY")
         spec.check_pinned()
         if not os.environ.get(spec.base_url_env or "") or not os.environ.get(spec.api_key_env):
             raise FeedSkip("PCSS environment credentials or endpoint unavailable")
         today = datetime.now(timezone.utc).date()
         budget = BudgetedClient(SingleAttemptClient(spec, timeout=90), self.args.cache / "budget" / f"{today}.txt", self.limit)
-        costs = load_costs()
-        if costs.B != self.replay["bound"]:
-            raise ValueError("Replay and feed must share the document loss bound")
         return ReviewPipeline(budget, spec.model_id, Cache(self.args.cache / "calls"),
-                              joblib.load(self.args.risk_model), costs, self.threshold)
+                              self.risk, self.costs, self.threshold)
 
     def page(self, feed):
         return render_page(self.replay["documents"], self.replay["bound"], feed=feed)
@@ -75,9 +78,18 @@ def main(argv=None):
     parser.add_argument("--cache", type=Path, default=ROOT / "cache" / "live_feed")
     parser.add_argument("--feed-dir", type=Path, required=True)
     parser.add_argument("--site", type=Path, required=True)
-    parser.add_argument("--replay", type=Path, required=True)
-    parser.add_argument("--risk-model", type=Path, required=True)
+    parser.add_argument("--artifacts", type=Path, help="Bundle directory; defaults to artifacts next to the feed directory")
     args = parser.parse_args(argv)
+    if args.date.weekday() >= 5:
+        print("Skipped: weekend")
+        return 0
+    if (args.feed_dir / f"{args.date.isoformat()}.json").is_file():
+        print("Skipped: date already published")
+        return 0
+    args.artifacts = args.artifacts or args.feed_dir.parent / "artifacts"
+    if not all((args.artifacts / name).is_file() for name in ("model.json", "replay.json")):
+        print("Skipped: feed artifact bundle is missing")
+        return 0
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     threshold, limit = float(config["lambda"]), int(config["daily_token_cap"])
     if not math.isfinite(threshold) or threshold < 0 or not 0 < limit <= 60000:
@@ -87,6 +99,8 @@ def main(argv=None):
     try:
         with (args.cache / "run.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            if not (args.feed_dir / f"{args.date.isoformat()}.json").is_file():
+                inputs.verify_bundle()
             line = run(args.date, args.feed_dir, args.site, threshold, download=dtcc.download,
                        select=dtcc.select_trades, render=render_batch, scorer=lambda doc: inputs.scorer(doc),
                        page=inputs.page, previous_day=dtcc.previous_business_day)

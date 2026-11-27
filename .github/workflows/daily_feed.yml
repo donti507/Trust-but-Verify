@@ -11,27 +11,27 @@ concurrency:
   group: daily-feed-publication
   cancel-in-progress: false
 permissions:
-  contents: write
-  actions: read
+  contents: read
 jobs:
   feed:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      ready: ${{ steps.publish.outputs.ready }}
     env:
       GH_TOKEN: ${{ github.token }}
-      FRONTIER_BASE_URL: ${{ secrets.FRONTIER_BASE_URL }}
-      FRONTIER_API_KEY: ${{ secrets.FRONTIER_API_KEY }}
-      BOOTSTRAP_RUN: ${{ vars.FEED_BOOTSTRAP_RUN }}
+      PCSS_BASE_URL: ${{ secrets.PCSS_BASE_URL }}
+      PCSS_API_KEY: ${{ secrets.PCSS_API_KEY }}
       PUBLICATION_DATE: ${{ inputs.date || '' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.FEED_PUBLISH_TOKEN || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Restore feed model-call cache and budget ledger
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: cache/live_feed
           key: live-feed-v1-${{ github.run_id }}-${{ github.run_attempt }}
@@ -53,6 +53,7 @@ jobs:
             fi
           done
       - name: Run and publish atomically
+        id: publish
         shell: bash
         run: |
           set -euo pipefail
@@ -68,17 +69,19 @@ jobs:
             echo "Skipped: date already published"
             exit 0
           fi
-          if [[ -z "$FRONTIER_BASE_URL" || -z "$FRONTIER_API_KEY" || -z "$BOOTSTRAP_RUN" ]]; then
-            echo "Skipped: configure PCSS credentials and FEED_BOOTSTRAP_RUN first"
+          if [[ ! -f "$data/artifacts/model.json" || ! -f "$data/artifacts/replay.json" ]]; then
+            echo "Skipped: feed artifact bundle is missing"
+            exit 0
+          fi
+          if [[ -z "$PCSS_BASE_URL" || -z "$PCSS_API_KEY" ]]; then
+            echo "Skipped: configure PCSS_BASE_URL and PCSS_API_KEY first"
             exit 0
           fi
           sudo apt-get update -qq
           sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core
           pip install -r requirements-dev.txt -e .
-          bootstrap="$RUNNER_TEMP/bootstrap"
-          gh run download "$BOOTSTRAP_RUN" --name feed-bootstrap --dir "$bootstrap"
           python scripts/daily_feed.py --date "$publication" --feed-dir "$data/feed" --site "$web/index.html" \
-            --replay "$bootstrap/index.html" --risk-model "$bootstrap/full_logistic.joblib"
+            --artifacts "$data/artifacts"
           if [[ ! -f "$data/feed/$publication.json" ]]; then
             exit 0
           fi
@@ -93,3 +96,31 @@ jobs:
           git fetch "$data" HEAD
           git fetch "$web" HEAD
           git push --atomic origin "$data_sha:refs/heads/feed-data" "$web_sha:refs/heads/gh-pages"
+          mkdir -p "$RUNNER_TEMP/feed-pages"
+          cp "$web/index.html" "$RUNNER_TEMP/feed-pages/index.html"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Save feed model-call cache and budget ledger
+        if: always() && hashFiles('cache/live_feed/budget/*.txt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: cache/live_feed
+          key: live-feed-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Package the generated site
+        if: steps.publish.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/feed-pages
+  deploy:
+    needs: feed
+    if: needs.feed.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
