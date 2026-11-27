@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http import HTTPStatus
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,6 +21,25 @@ from trustswap.verify.run import to_record, verify
 
 class FeedSkip(RuntimeError):
     """An expected condition that must leave the published feed untouched."""
+
+
+def provider_failure(error: Exception) -> str:
+    """Describe a failure without emitting provider text, URLs or request headers."""
+    kind = type(error).__name__
+    status = getattr(error, "status_code", None)
+    if type(status) is int and 100 <= status <= 599:
+        try:
+            message = HTTPStatus(status).phrase
+        except ValueError:
+            message = "Provider rejected the request"
+        return f"PCSS request failed ({kind}, HTTP {status}): {message}"
+    if isinstance(error, TimeoutError) or "Timeout" in kind:
+        message = "Provider request timed out"
+    elif isinstance(error, ConnectionError) or "Connection" in kind:
+        message = "Could not connect to the provider"
+    else:
+        message = "Provider request did not complete"
+    return f"PCSS request failed ({kind}, no HTTP status): {message}"
 
 
 class SingleAttemptClient(OpenAICompatClient):
@@ -51,8 +71,8 @@ class BudgetedClient:
         self._write(used + reservation)
         try:
             completion = self.client.complete(messages, temperature=temperature, seed=seed)
-        except Exception:
-            raise FeedSkip("PCSS request failed") from None
+        except Exception as error:
+            raise FeedSkip(provider_failure(error)) from None
         if completion.input_tokens is not None and completion.output_tokens is not None:
             spent = completion.input_tokens + completion.output_tokens
             self._write(used + spent)
