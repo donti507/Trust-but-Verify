@@ -549,8 +549,55 @@ tbody tr:hover {
   overflow-wrap: anywhere;
   padding: clamp(0.9rem, 3vw, 2.1rem);
   font:
-    1rem/1.75 Georgia,
+    300 0.95rem/1.8 Merriweather,
+    Georgia,
     serif;
+}
+.document-panel .document {
+  /* Paper sheet: the text sits on a white page with a soft shadow. */
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    #eef2fa;
+  border: clamp(0.5rem, 2vw, 1.3rem) solid #eef2fa;
+  box-shadow: inset 0 0 0 1px #dfe6f3;
+  padding: clamp(1rem, 3.5vw, 2.6rem) clamp(1rem, 4vw, 3rem);
+}
+.callout {
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #f3c2bf;
+  border-left: 4px solid var(--red);
+  border-radius: 0.5rem;
+  background: #fdf1f0;
+  color: #5c1512;
+  font:
+    0.86rem/1.45 Inter,
+    system-ui,
+    sans-serif;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+.callout strong {
+  display: block;
+  margin: 0.15rem 0;
+  color: var(--red);
+}
+.callout-tag {
+  float: right;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.3rem;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.callout.selected {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 .mark {
   display: inline;
