@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Counterparty draft{% endblock %}
+{% block content %}
+<section class="panel">
+<h1>Counterparty email draft</h1>
+<p>Copy this text into your local draft. This desk does not send messages.</p>
+<p><strong>To</strong> {{ message['To'] }}<br><strong>Subject</strong> {{ message['Subject'] }}</p>
+<label for="draft">Draft text</label><textarea id="draft" class="draft-text" readonly>{{ message.get_content() }}</textarea>
+<div class="actions">
+<a class="button" href="{{ url_for('review',trade_id=trade_id) }}">Return to trade</a>
+<form method="post" action="{{ url_for('chase_case',trade_id=trade_id) }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button name="mode" value="download" class="secondary">Download draft .eml</button></form>
+</div>
+</section>
+{% endblock %}

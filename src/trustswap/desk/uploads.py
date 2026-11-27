@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
 
-from trustswap.desk import imports, matcher, store, upload_review
+from trustswap.desk import exceptions, imports, matcher, store, upload_review
 from trustswap.desk.formats import fpml, read_terms, swift
 from trustswap.ingest.to_text import normalise_whitespace, to_text
 
@@ -200,6 +200,7 @@ def attach(db, upload, actor, requested_id=None):
                    (trade_id, upload.digest, upload.kind))
         store.event(db, actor, "confirmation_uploaded", trade_id, sha256=upload.digest, kind=upload.kind,
                     matched_booking=matched is not None)
+        exceptions.reconcile(db, trade_id, actor)
     return trade_id
 
 

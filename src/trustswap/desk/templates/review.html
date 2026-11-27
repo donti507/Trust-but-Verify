@@ -9,6 +9,35 @@
 {% endif %}
 <p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>
 {% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
+{% if case %}
+<section class="panel case-panel" aria-label="Exception case">
+<h2>Exception case</h2><p>
+<span class="tag">{{ case.status }}</span> {{ case.severity|capitalize }} severity ·
+{{ case.owner_name or 'Unassigned' }} · Due {{ case.due_at|replace('T', ' ')|replace('+00:00', ' UTC') }}</p>
+{% if g.user.role == 'supervisor' and case.status != 'Resolved' %}
+<form method="post" action="{{ url_for('assign_case', trade_id=trade.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label for="case-owner">Assign analyst</label>
+<select id="case-owner" name="owner" required>
+<option value="">Select analyst</option>
+{% for analyst in analysts %}<option value="{{ analyst.id }}" {{ 'selected' if case.owner == analyst.id }}>{{ analyst.name }}</option>{% endfor %}
+</select> <button>Assign case</button></form>
+{% endif %}
+{% if case.owner and (g.user.role == 'supervisor' or case.owner == g.user.id) %}
+{% if case.status in ('Assigned', 'Waiting for counterparty') %}
+<div class="actions">
+<form method="post" action="{{ url_for('chase_case',trade_id=trade.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<button name="mode" value="draft">Chase counterparty</button>
+<button name="mode" value="download" class="secondary">Download draft .eml</button></form>
+{% if case.status == 'Waiting for counterparty' %}
+<form method="post" action="{{ url_for('acknowledge_case',trade_id=trade.id) }}">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Record counterparty reply</button></form>
+{% endif %}
+</div>
+{% endif %}{% endif %}
+</section>
+{% endif %}
 <div class="review-layout">
 <section class="panel source" aria-labelledby="source-title">
 <h2 id="source-title">Confirmation source</h2>

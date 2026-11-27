@@ -13,7 +13,7 @@ from random import Random
 import re
 
 from trustswap.decide.policy import load_costs
-from trustswap.desk import matcher, store
+from trustswap.desk import exceptions, matcher, store
 from trustswap.extract.fields import PATHS
 
 TRADE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
@@ -194,6 +194,7 @@ def seed(db, replay, feed_dir=None):
             store.new_trade(db, trade, source, text, fields)
             if trade in changes:
                 store.event(db, None, "booking_difference_planted", trade, path, kind=kind)
+            exceptions.reconcile(db, trade)
     return len(new), len(planted)
 
 
@@ -287,6 +288,7 @@ def import_bookings(db, source, actor=None):
             store.event(db, actor, "booking_imported", trade_id, booking_id=booking_id,
                         match="trade_id" if booking_id == trade_id else "normalized_key",
                         before=previous, after=fields)
+            exceptions.reconcile(db, trade_id, actor)
             matched += 1
             updated += 1
     return ImportReport(matched, updated, sorted(rejected, key=lambda row: row.line))

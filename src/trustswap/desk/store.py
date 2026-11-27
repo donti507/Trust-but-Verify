@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS desk_uploads (
     trade_id TEXT PRIMARY KEY REFERENCES trades(id), sha256 TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('pdf','png','jpeg','swift','fpml','text'))
 );
+CREATE TABLE IF NOT EXISTS desk_cases (
+    trade_id TEXT PRIMARY KEY REFERENCES trades(id),
+    status TEXT NOT NULL CHECK (status IN ('New','Assigned','Waiting for counterparty','Pending approval','Resolved')),
+    owner INTEGER REFERENCES users(id), priority REAL NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('critical','major','minor')),
+    created_at TEXT NOT NULL, due_at TEXT NOT NULL, resolved_at TEXT
+);
 CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value REAL NOT NULL);
 INSERT OR IGNORE INTO settings VALUES ('lambda',1.0);
 CREATE TABLE IF NOT EXISTS audit (

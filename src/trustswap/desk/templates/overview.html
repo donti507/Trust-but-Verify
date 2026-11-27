@@ -28,6 +28,30 @@
 </form>
 </section>
 {% endif %}
+<section class="panel responsive-table">
+<h2>Exception queue</h2>
+<div class="queue-summary" aria-label="Case summary">
+{% for bucket, count in case_metrics.buckets.items() %}
+<div><strong>{{ count }}</strong><br>{{ bucket }}</div>
+{% endfor %}
+<div><strong>{{ '%.1f hours'|format(case_metrics.mean_hours) if case_metrics.mean_hours is not none else '—' }}</strong><br>Average time to resolve</div>
+</div>
+<p><a href="{{ url_for('overview') if overdue_only else url_for('overview', overdue=1) }}">
+{{ 'Show all open cases' if overdue_only else 'Show overdue cases only' }}</a></p>
+<table><thead><tr><th>Trade</th><th>Case status</th><th>Severity</th><th>Age</th><th>Analyst</th></tr></thead>
+<tbody>{% for case in cases %}
+<tr><th scope="row"><a href="{{ url_for('review',trade_id=case.trade_id) }}">{{ case.trade_id }}</a></th>
+<td>{{ case.status }}</td><td>{{ case.severity|capitalize }}</td>
+<td><span class="tag {{ {'On track': 'ok', 'Due soon': 'due-soon', 'Overdue': 'review'}[case.bucket] }}">{{ case.bucket }}</span>
+{{ '%.1f'|format(case.age_hours) }} h</td><td>{{ case.owner_name or 'Unassigned' }}</td></tr>
+{% else %}<tr><td colspan="5">No {{ 'overdue' if overdue_only else 'open' }} exception cases.</td></tr>{% endfor %}</tbody></table>
+{% if g.user.role == 'supervisor' and case_metrics.owners %}
+<h3>Resolution by analyst</h3>
+<table><thead><tr><th>Analyst</th><th>Open cases</th><th>Average time to resolve</th></tr></thead>
+<tbody>{% for owner, count, mean in case_metrics.owners %}<tr><th scope="row">{{ owner }}</th>
+<td>{{ count }}</td><td>{{ '%.1f hours'|format(mean) if mean is not none else '—' }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}
+</section>
 <section class="panel responsive-table"><h2>Confirmations</h2>
 <table><thead><tr><th>Trade</th><th>Source</th><th>Status</th><th>Action</th></tr></thead>
 <tbody>{% for trade in trades %}<tr><th scope="row">{{ trade.id }}</th><td>{{ trade.source_collection }}</td><td><span class="tag {{ 'ok' if trade.state == 'Affirmed' else '' }}">{{ trade.state }}</span></td><td><a href="{{ url_for('review', trade_id=trade.id) }}">Open trade</a></td></tr>

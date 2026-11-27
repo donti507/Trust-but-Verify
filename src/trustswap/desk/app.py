@@ -1,4 +1,5 @@
 """Local desk web application and server-side authorization."""
+from contextlib import closing
 from datetime import timedelta
 from functools import wraps
 import hmac
@@ -10,7 +11,7 @@ import secrets
 import bcrypt
 from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
-from trustswap.desk import exports, imports, matcher, presentation, store, upload_review, uploads
+from trustswap.desk import exceptions, exports, imports, matcher, presentation, store, upload_review, uploads
 
 
 def roles(*allowed):
@@ -43,6 +44,8 @@ def create_app(path="desk.db", *, secret=None):
     if len(key) < 32:
         raise ValueError("Set DESK_SECRET_KEY to at least 32 random characters")
     store.initialize(path)
+    with closing(store.connect(path)) as db, store.transaction(db):
+        exceptions.reconcile(db)
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY=key, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Strict",
@@ -126,10 +129,14 @@ def create_app(path="desk.db", *, secret=None):
                               (g.user["id"],))
         else:
             rows = db.execute("SELECT * FROM trades ORDER BY id")
-        threshold = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
+        threshold = threshold_now(db)
+        cases = exceptions.queue(db, analyst=g.user["id"] if g.user["role"] == "analyst" else None)
+        overdue_only = request.args.get("overdue") == "1"
+        visible = [case for case in cases if case["bucket"] and (not overdue_only or case["bucket"] == "Overdue")]
         return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report,
                                form_error=error, submitted_lambda=submitted_lambda, upload_status=upload_status,
-                               upload_id=upload_id, allow_external=upload_review.allow_external())
+                               upload_id=upload_id, allow_external=upload_review.allow_external(),
+                               cases=visible, case_metrics=exceptions.metrics(cases), overdue_only=overdue_only)
 
     def trade_for_user(trade_id):
         trade = database().execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
@@ -158,10 +165,14 @@ def create_app(path="desk.db", *, secret=None):
         fields = comparison_rows(db, trade_id, threshold)
         groups, segments = presentation.source_groups(trade["source"], fields)
         upload = db.execute("SELECT kind FROM desk_uploads WHERE trade_id=?", (trade_id,)).fetchone()
+        case = db.execute("SELECT desk_cases.*,users.name AS owner_name FROM desk_cases "
+                          "LEFT JOIN users ON owner=users.id WHERE trade_id=?", (trade_id,)).fetchone()
+        analysts = exceptions.analyst_options(db) if case and g.user["role"] == "supervisor" else []
         cleared = sum(field["state"] in {"accepted", "approved"} for field in fields)
         return render_template("review.html", trade=trade, fields=fields, groups=groups, segments=segments,
                                can_bulk_accept=any(bulk_eligible(field) for field in fields), threshold=threshold,
-                               cleared=cleared, form_error=error, submitted=submitted or {}, upload=upload)
+                               cleared=cleared, form_error=error, submitted=submitted or {}, upload=upload,
+                               case=case, analysts=analysts)
 
     @app.get("/trade/<trade_id>")
     @roles(*store.ROLES)
@@ -183,6 +194,7 @@ def create_app(path="desk.db", *, secret=None):
                 db.execute("UPDATE fields SET state='accepted' WHERE trade_id=? AND path=?", (trade_id, path))
                 store.event(db, g.user["id"], "field_accepted", trade_id, path, via="matched_low_risk")
             store.affirm_if_complete(db, trade_id, g.user["id"])
+            exceptions.reconcile(db, trade_id, g.user["id"])
         return redirect(url_for("review", trade_id=trade_id))
 
     @app.post("/trade/<trade_id>/field/<field>/review")
@@ -219,6 +231,7 @@ def create_app(path="desk.db", *, secret=None):
                            (json.dumps(value), note, g.user["id"], trade_id, field))
                 store.event(db, g.user["id"], "correction_proposed", trade_id, field, value=value, note=note)
             store.affirm_if_complete(db, trade_id, g.user["id"])
+            exceptions.reconcile(db, trade_id, g.user["id"])
         return redirect(url_for("review", trade_id=trade_id))
 
     @app.get("/approvals")
@@ -257,6 +270,7 @@ def create_app(path="desk.db", *, secret=None):
             store.event(db, g.user["id"], "correction_approved" if approved else "correction_rejected",
                         trade_id, field, reason=reason, proposer=row["proposer"])
             store.affirm_if_complete(db, trade_id, g.user["id"])
+            exceptions.reconcile(db, trade_id, g.user["id"])
         return redirect(url_for("approvals"))
 
     @app.post("/settings/lambda")
@@ -274,6 +288,7 @@ def create_app(path="desk.db", *, secret=None):
             old = db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
             db.execute("UPDATE settings SET value=? WHERE name='lambda'", (value,))
             store.event(db, g.user["id"], "lambda_changed", old=old, new=value)
+            exceptions.reconcile(db, actor=g.user["id"])
         return redirect(url_for("overview"))
 
     @app.post("/bookings/import")
@@ -325,6 +340,50 @@ def create_app(path="desk.db", *, secret=None):
         return Response(content, mimetype=media_type, headers={
             "Content-Disposition": f"attachment; filename=desk-confirmation.{extension}",
         })
+
+    @app.post("/trade/<trade_id>/case/assign")
+    @roles("supervisor")
+    def assign_case(trade_id):
+        try:
+            owner = int(request.form.get("owner", ""))
+            db = database()
+            with store.transaction(db):
+                trade_for_user(trade_id)
+                exceptions.assign(db, trade_id, owner, g.user["id"])
+        except ValueError as error:
+            message = str(error) if request.form.get("owner", "").isdecimal() else "Select an analyst"
+            return render_review(trade_id, message), 400
+        return redirect(url_for("review", trade_id=trade_id))
+
+    @app.post("/trade/<trade_id>/case/chase")
+    @roles("analyst", "supervisor")
+    def chase_case(trade_id):
+        mode = request.form.get("mode")
+        if mode not in {"draft", "download"}:
+            return render_review(trade_id, "Choose to preview or download a draft"), 400
+        db = database()
+        try:
+            with store.transaction(db):
+                trade_for_user(trade_id)
+                message = exceptions.chase(db, trade_id, g.user["id"], g.user["role"])
+        except ValueError as error:
+            return render_review(trade_id, str(error)), 409
+        if mode == "download":
+            return Response(message.as_bytes(), mimetype="message/rfc822",
+                            headers={"Content-Disposition": "attachment; filename=counterparty-draft.eml"})
+        return render_template("chase.html", trade_id=trade_id, message=message)
+
+    @app.post("/trade/<trade_id>/case/reply")
+    @roles("analyst", "supervisor")
+    def acknowledge_case(trade_id):
+        db = database()
+        try:
+            with store.transaction(db):
+                trade_for_user(trade_id)
+                exceptions.acknowledge(db, trade_id, g.user["id"], g.user["role"])
+        except ValueError as error:
+            return render_review(trade_id, str(error)), 409
+        return redirect(url_for("review", trade_id=trade_id))
 
     @app.get("/audit.<kind>")
     @roles("auditor", "supervisor")
