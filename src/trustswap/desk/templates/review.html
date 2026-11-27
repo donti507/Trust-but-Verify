@@ -3,14 +3,15 @@
 {% block content %}
 <section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ 'Terminated' if readonly else trade.state }}</p>
 {% if upload and upload.kind in ('fpml','swift') %}<p>Structured format import · booking comparison</p>{% endif %}
-{% if trade.state == 'Affirmed' and not readonly %}
+{% if trade.state == 'Affirmed' and not readonly and not product_name %}
 <div class="actions"><a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='fpml') }}">Download FpML</a>
 <a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='swift') }}">Download FIN</a></div>
 {% endif %}
 <p><a href="{{ url_for('history', trade_id=trade.id) }}">History</a>
 {% if version %} · Booked version {{ version.version }}{% endif %}</p>
 {% if readonly %}<p>This trade is terminated. Review and lifecycle actions are locked.</p>{% endif %}
-<p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>
+{% if product_name %}<p>{{ product_name }} · <strong>Uncalibrated</strong> · Product checks and booking comparison</p>
+{% else %}<p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>{% endif %}
 {% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
 {% if case %}
 <section class="panel case-panel" aria-label="Exception case">
@@ -41,7 +42,7 @@
 {% endif %}{% endif %}
 </section>
 {% endif %}
-{% if g.user.role == 'analyst' and trade.state == 'Affirmed' and not readonly %}
+{% if g.user.role == 'analyst' and trade.state == 'Affirmed' and not readonly and not product_name %}
 <section class="panel">
 <h2>Trade lifecycle</h2>
 {% if pending_change %}<p>A proposed change is waiting for supervisor approval.</p>
@@ -87,7 +88,8 @@
 {% endfor %}
 </div>
 {% if field.flagged %}
-<p class="reasons">{% if field.risk %}Risk policy: Review ({{ '%.1f'|format(100 * field.p) }}% risk). {% endif %}
+<p class="reasons">{% if field.product_check %}Product check: {{ field.product_check }}
+{% elif field.risk %}Risk policy: Review ({{ '%.1f'|format(100 * field.p) }}% risk). {% endif %}
 {% if field.match != 'MATCH' %}Booking comparison: {{ field.match }}.{% endif %}</p>
 {% endif %}
 {% if field.reason %}<p>Supervisor reason: {{ field.reason }}</p>{% endif %}

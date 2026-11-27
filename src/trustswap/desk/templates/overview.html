@@ -17,7 +17,7 @@
 <h2>Upload a fictional confirmation</h2>
 <p>PDF, PNG, JPEG, TXT, FIN or FpML XML. Maximum 10 MB.</p>
 {% if allow_external %}<p>Text and scans may be sent to the configured extraction provider.</p>
-{% else %}<p>External extraction is off. Text and scans are saved locally. FIN and FpML are processed locally.</p>{% endif %}
+{% else %}<p>External extraction is off. Text and scans are saved locally. FIN, FpML and labelled product TXT are processed locally.</p>{% endif %}
 {% if upload_status %}<p role="status">{{ upload_status }}</p>{% endif %}
 <form method="post" action="{{ url_for('upload_confirmation') }}" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
@@ -54,6 +54,6 @@
 </section>
 <section class="panel responsive-table"><h2>Confirmations</h2>
 <table><thead><tr><th>Trade</th><th>Source</th><th>Status</th><th>Action</th></tr></thead>
-<tbody>{% for trade in trades %}<tr><th scope="row">{{ trade.id }}</th><td>{{ trade.source_collection }}</td><td><span class="tag {{ 'ok' if trade.display_state == 'Affirmed' else '' }}">{{ trade.display_state }}</span></td><td><a href="{{ url_for('review', trade_id=trade.id) }}">Open trade</a></td></tr>
+<tbody>{% for trade in trades %}<tr><th scope="row">{{ trade.id }}</th><td>{{ products[trade.product][0] if trade.product else trade.source_collection }}</td><td><span class="tag {{ 'ok' if trade.display_state == 'Affirmed' else '' }}">{{ trade.display_state }}</span></td><td><a href="{{ url_for('review', trade_id=trade.id) }}">Open trade</a></td></tr>
 {% else %}<tr><td colspan="4">No trades assigned or available.</td></tr>{% endfor %}</tbody></table></section>
 {% endblock %}

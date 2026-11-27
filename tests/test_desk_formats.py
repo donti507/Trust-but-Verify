@@ -138,15 +138,17 @@ def storage(tmp_path, monkeypatch):
     directory = tmp_path / "private"
     monkeypatch.setenv("DESK_UPLOAD_DIR", str(directory))
     monkeypatch.delenv("DESK_ALLOW_EXTERNAL_LLM", raising=False)
+    monkeypatch.delenv("PCSS_BASE_URL", raising=False)
+    monkeypatch.delenv("PCSS_API_KEY", raising=False)
     return directory
 
 
 def test_private_storage_and_default_external_guard(storage, monkeypatch):
     def unavailable(*args, **kwargs):
-        pytest.fail("An offline upload must not start OCR or a model")
+        pytest.fail("An offline upload must not call a model")
 
     monkeypatch.setattr(upload_review, "scorer", unavailable)
-    monkeypatch.setattr(uploads, "_pdf", unavailable)
+    monkeypatch.setattr(uploads, "_pdf", lambda path: ("Synthetic confirmation", {"ocr": False}))
     payload = b"%PDF-fake bytes"
     info = uploads.read_upload(payload, "../../confirmation.pdf")
     assert info.file.parent == storage and info.file.read_bytes() == payload

@@ -56,6 +56,8 @@ def _normalized(path, value):
 
 def _changes(event_type, effective, terms, form, upload):
     if event_type == "amendment":
+        if upload and upload.product is not None:
+            raise ValueError("An amendment must match the current booking product")
         if upload:
             requested = {key: row["confirmation"] for key, row in upload.fields.items()
                          if row["confirmation"] is not None}
@@ -108,6 +110,8 @@ def _validate_trade(db, trade_id):
         raise ValueError("Lifecycle events require an affirmed trade")
     if terminated(db, trade_id):
         raise ValueError("The trade is terminated and read-only")
+    if db.execute("SELECT 1 FROM desk_products WHERE trade_id=?", (trade_id,)).fetchone():
+        raise ValueError("Lifecycle events use the interest rate swap desk profile")
 
 
 def propose(db, trade_id, event_type, form, actor, upload=None):

@@ -10,6 +10,8 @@ from tempfile import NamedTemporaryFile
 
 from trustswap.desk import exceptions, imports, lifecycle, matcher, store, upload_review
 from trustswap.desk.formats import fpml, read_terms, swift
+from trustswap.desk.products import PRODUCTS, detect, local_terms
+from trustswap.desk.products import extract as product_extract, review as product_review
 from trustswap.ingest.to_text import normalise_whitespace, to_text
 
 MAX_BYTES = 10 * 1024 * 1024
@@ -28,6 +30,8 @@ class Upload:
     text: str | None
     fields: dict | None
     reference: str | None
+    product: str | None = None
+    checks: dict | None = None
 
 
 def upload_directory(value=None):
@@ -133,8 +137,6 @@ def read_upload(payload, filename):
         return Upload(kind, digest, file, text, fields, parsed.reference)
     # Saving the upload is local even when extraction is disabled.
     _atomic_write(file, payload)
-    if not upload_review.allow_external():
-        return Upload(kind, digest, file, None, None, None)
     ocr = False
     try:
         if kind == "pdf":
@@ -149,6 +151,13 @@ def read_upload(payload, filename):
         raise ValueError("The desk could not read the document or scan") from None
     if not text or len(text) > MAX_TEXT:
         raise ValueError("The document has no readable text or exceeds the extraction limit")
+    product = detect(text) or product_extract.detect_remote(text, directory)
+    if product in PRODUCTS:
+        raw = local_terms(product, text) or product_extract.extract_remote(product, text, directory)
+        fields, checks = product_review.prepare(product, text, raw)
+        return Upload(kind, digest, file, text, fields, None, product, checks)
+    if not upload_review.allow_external():
+        return Upload(kind, digest, file, None, None, None)
     fields = upload_review.scorer(directory)(f"desk-{digest[:32]}", text, ocr)
     _check_fictional(fields)
     return Upload(kind, digest, file, text, fields, None)
@@ -173,10 +182,14 @@ def attach(db, upload, actor, requested_id=None):
         trade_id = matched["trade_id"] if matched else reference
         if lifecycle.terminated(db, trade_id):
             raise ValueError("The trade is terminated and read-only")
+        existing = db.execute("SELECT product FROM desk_products WHERE trade_id=?", (trade_id,)).fetchone()
+        found = existing["product"] if existing else None
         current = db.execute("SELECT sha256 FROM desk_uploads WHERE trade_id=?", (trade_id,)).fetchone()
         if current and current["sha256"] == upload.digest:
             return trade_id
         trade = db.execute("SELECT assigned_to,state FROM trades WHERE id=?", (trade_id,)).fetchone()
+        if trade is not None and found != upload.product:
+            raise ValueError("The booking trade ID belongs to another product")
         if trade is None:
             store.new_trade(db, trade_id, "synthetic", upload.text, upload.fields)
         else:
@@ -200,6 +213,10 @@ def attach(db, upload, actor, requested_id=None):
         db.execute("""INSERT INTO desk_uploads(trade_id,sha256,kind) VALUES (?,?,?)
                    ON CONFLICT(trade_id) DO UPDATE SET sha256=excluded.sha256,kind=excluded.kind""",
                    (trade_id, upload.digest, upload.kind))
+        if upload.product:
+            db.execute('''INSERT INTO desk_products(trade_id,product,checks) VALUES (?,?,?)
+                       ON CONFLICT(trade_id) DO UPDATE SET checks=excluded.checks''',
+                       (trade_id, upload.product, json.dumps(upload.checks)))
         store.event(db, actor, "confirmation_uploaded", trade_id, sha256=upload.digest, kind=upload.kind,
                     matched_booking=matched is not None)
         exceptions.reconcile(db, trade_id, actor)

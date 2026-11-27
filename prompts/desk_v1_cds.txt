@@ -1,0 +1,5 @@
+Extract terms only from this fictional single-name credit default swap confirmation. Return a
+JSON object with the keys trade_date, effective_date, termination_date, notional_amount,
+notional_currency, reference_entity, spread, upfront, protection_buyer, protection_seller.
+Keep the stated unit of a spread, such as percent or basis points. Copy terms without correcting
+them. Use null for missing or ambiguous terms. Return only the JSON object.

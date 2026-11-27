@@ -1,0 +1,5 @@
+Extract terms only from this fictional FX forward confirmation. Return a JSON object with the
+keys trade_date, value_date, base_currency, quote_currency, base_amount, quote_amount,
+forward_rate, buyer, seller. The forward rate is quote currency per unit of base currency.
+Copy the stated terms without calculating or correcting them. Use null for a missing or
+ambiguous field. Use the exact stated FX parties. Do not include additional keys or commentary.

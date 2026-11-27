@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS desk_uploads (
     trade_id TEXT PRIMARY KEY REFERENCES trades(id), sha256 TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('pdf','png','jpeg','swift','fpml','text'))
 );
+CREATE TABLE IF NOT EXISTS desk_products (
+    trade_id TEXT PRIMARY KEY REFERENCES trades(id),
+    product TEXT NOT NULL CHECK(product IN ('fx_forward','xccy_swap','cds')),
+    checks TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS desk_cases (
     trade_id TEXT PRIMARY KEY REFERENCES trades(id),
     status TEXT NOT NULL CHECK (status IN ('New','Assigned','Waiting for counterparty','Pending approval','Resolved')),

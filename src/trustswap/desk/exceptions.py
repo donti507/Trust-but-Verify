@@ -11,6 +11,7 @@ import yaml
 
 from trustswap.decide.policy import escalate
 from trustswap.desk import matcher, store
+from trustswap.desk.products import TERMS
 from trustswap.score.features import SEVERITY
 from trustswap.synth.markets import calendar_for
 
@@ -45,19 +46,21 @@ def due_at(created, severity, config=None):
 
 
 def _terms(db, trade_id):
-    return list(db.execute("SELECT path,confirmation,booking,p,c,r,state FROM fields WHERE trade_id=?", (trade_id,)))
+    return list(db.execute('''SELECT fields.*,
+                           json_extract(desk_products.checks, '$."' || fields.path || '"') AS product_check
+                           FROM fields LEFT JOIN desk_products USING(trade_id) WHERE trade_id=?''', (trade_id,)))
 
 
 def _disputed(row, threshold):
     if row["state"] not in ACTIVE_FIELDS:
         return False
-    return bool(escalate(row["p"], row["c"], row["r"], threshold)) or matcher.match(
+    return bool(row["product_check"]) or bool(escalate(row["p"], row["c"], row["r"], threshold)) or matcher.match(
         row["path"], json.loads(row["confirmation"]), json.loads(row["booking"])
     ) != matcher.MATCH
 
 
 def _severity(field):
-    return SEVERITY[field.rsplit(".", 1)[-1]]
+    return TERMS[field].severity if field in TERMS else SEVERITY[field.rsplit(".", 1)[-1]]
 
 
 def reconcile(db, trade_id=None, actor=None, *, now=None):
@@ -82,7 +85,8 @@ def reconcile(db, trade_id=None, actor=None, *, now=None):
             continue
         if disputed:
             severity = max((_severity(row["path"]) for row in disputed), key=SEVERITY_WEIGHT.get)
-            priority = max(SEVERITY_WEIGHT[_severity(row["path"])] * row["p"] for row in disputed)
+            priority = max(SEVERITY_WEIGHT[_severity(row["path"])] *
+                           (1.0 if row["product_check"] else row["p"]) for row in disputed)
         else:
             severity, priority = current["severity"], current["priority"]
         new = current is None or current["status"] == "Resolved"
