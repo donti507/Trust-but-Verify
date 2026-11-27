@@ -433,3 +433,31 @@ def test_truncated_call_is_retried_once_with_a_larger_limit(documents, tmp_path)
     assert model.calls == [None, 16384]
     again = extract_document("doc_0", rendered.text, model, retry_max_tokens=16384, **kwargs)
     assert model.calls == [None, 16384] and again[0]["fresh_tokens"] == 0 and again[0]["cached"]
+
+
+@pytest.mark.parametrize(("field", "raw_value", "expected"), [
+    ("trade_date", "/ 2012-04-13", "2012-04-13"),
+    ("fixed_leg.notional_amount", ": USD 5,000,000", 5000000),
+    ("fixed_leg.fixed_rate", "- 4.06%", 0.0406),
+    ("termination_date", " \t– / 2012-04-13 . , ; ", "2012-04-13"),
+    ("trade_date", "2012/04/13", "2012-04-13"),
+    ("fixed_leg.notional_amount", "USD 5,000,000", 5000000),
+    ("fixed_leg.fixed_rate", "4.06%", 0.0406),
+    ("fixed_leg.fixed_rate", "/ -4.06%;", -0.0406),
+    ("floating_leg.spread", ": -.5% /", -0.005),
+    ("floating_leg.spread", ".5%", 0.005),
+    ("fixed_leg.fixed_rate", "- 4.06% p.a.;", 0.0406),
+    ("fixed_leg.fixed_rate", "4.06%\tp.a.", 0.0406),
+    ("fixed_leg.payer", "Example & Co.", "Example & Co."),
+])
+def test_typed_separator_cleanup_preserves_original_evidence(field, raw_value, expected):
+    answer = {"structure": "fixed_float",
+              "fields": {path: {"value": None, "line": None, "confidence": 0.9} for path in PATHS}}
+    answer["fields"][field] = {"value": raw_value, "line": 1, "confidence": 0.9}
+    text = f"Term: {raw_value}"
+    record = parse_completion(json.dumps(answer), text).fields[field]
+    assert record["value"] == expected
+    assert record["raw_value"] == raw_value
+    assert "normalise_error" not in record
+    start, end = record["span"]
+    assert text[start:end] == raw_value.strip()
