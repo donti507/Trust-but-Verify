@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<section class="hero"><h1>Audit log</h1><p>Append-only desk events.</p>
+<div class="actions"><a class="button" href="{{ url_for('download_audit',kind='csv') }}">Download CSV</a>
+<a class="button" href="{{ url_for('download_audit',kind='json') }}">Download JSON</a></div></section>
+<section class="panel responsive-table"><table><thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Trade</th><th>Field</th><th>Detail</th></tr></thead>
+<tbody>{% for event in events %}<tr><td>{{ event.at }}</td><td>{{ event.name or 'System' }}</td><td>{{ event.action }}</td><td>{{ event.trade_id or '—' }}</td><td>{{ event.field or '—' }}</td><td>{{ event.detail }}</td></tr>
+{% else %}<tr><td colspan="6">No audit events.</td></tr>{% endfor %}</tbody></table></section>
+{% endblock %}

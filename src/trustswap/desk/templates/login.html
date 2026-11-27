@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<section class="panel login"><h1>Sign in to the desk</h1><p>Review fictional confirmations and booking differences.</p>
+{% if error %}<p class="reasons" role="alert">{{ error }}</p>{% endif %}
+<form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label for="username">Username</label><input id="username" name="username" required autocomplete="username">
+<label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password">
+<div class="actions"><button>Sign in</button></div></form></section>
+{% endblock %}
