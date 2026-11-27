@@ -14,16 +14,20 @@ import re
 
 from trustswap.decide.policy import load_costs
 from trustswap.desk import exceptions, matcher, store
+from trustswap.desk.products import TERMS, cost_term
 from trustswap.extract.fields import PATHS
 
 TRADE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 LEGS = {"fixed_leg": "fixed leg", "floating_leg": "floating leg", "floating_leg_2": "second floating leg"}
 PARTIES = {f"Synthetic Party {letter}" for letter in "ABCD"}
 FIELD_PATHS = set(PATHS)
+BOOKING_PATHS = FIELD_PATHS | TERMS.keys()
 DIFFERENCES = ("notional", "rate", "date", "convention")
 
 
 def field_label(path):
+    if path in TERMS:
+        return TERMS[path].label
     leg, _, field = path.rpartition(".")
     label = field.replace("_", " ").capitalize()
     return f"{label} ({LEGS[leg]})" if leg else label
@@ -61,7 +65,7 @@ def _canonical(path, value):
 def _fictional(path, value):
     if matcher.missing(value):
         return
-    term = path.rsplit(".", 1)[-1]
+    term = matcher.term_name(path)
     if term in {"payer", "receiver"} and (not isinstance(value, str) or value not in PARTIES):
         raise ValueError("Booking parties must use the fictional party names")
     if term == "notice_address" and not (isinstance(value, str) and value in ADDRESSES):
@@ -209,7 +213,7 @@ def parse_bookings(source):
     reader = csv.DictReader(source)
     columns = reader.fieldnames or []
     if (not columns or len(set(columns)) != len(columns)
-            or not set(columns) <= FIELD_PATHS | {"trade_id"}):
+            or not set(columns) <= BOOKING_PATHS | {"trade_id"}):
         raise ValueError("CSV headers must be distinct supported field paths and optional trade_id")
     rows, rejected = [], []
     for row in reader:
@@ -263,6 +267,11 @@ def import_bookings(db, source, actor=None):
                 continue
             line, booking_id, fields = choices[0]
             existing = trades[trade_id]
+            product = db.execute("SELECT product FROM desk_products WHERE trade_id=?", (trade_id,)).fetchone()
+            allowed = {key for key in TERMS if key.startswith(product["product"] + ".")} if product else FIELD_PATHS
+            if not fields.keys() <= allowed:
+                rejected.append(RejectedRow(line, "Booking fields do not match the trade product"))
+                continue
             previous = {row["path"]: json.loads(row["booking"]) for row in existing}
             paths = sorted(set(previous) | set(fields))
             if all(previous.get(path) == fields.get(path) for path in paths):
@@ -276,7 +285,7 @@ def import_bookings(db, source, actor=None):
                 if path in previous:
                     db.execute("UPDATE fields SET booking=? WHERE trade_id=? AND path=?", (value, trade_id, path))
                 else:
-                    name = path.rsplit(".", 1)[-1]
+                    name = cost_term(path)
                     db.execute("INSERT INTO fields (trade_id,path,confirmation,booking,p,c,r) VALUES (?,?,'null',?,0,?,?)",
                                (trade_id, path, value, costs.c_bar(name), costs.r(name)))
             store.event(db, actor, "booking_imported", trade_id, booking_id=booking_id,

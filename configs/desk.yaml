@@ -3,3 +3,14 @@ sla:
   major_business_days: 1
   minor_days: 2
   business_centers: [USNY]
+
+products:
+  fx_reference_rates:
+    USD/EUR: 0.92
+    EUR/USD: 1.08695652
+    GBP/USD: 1.25
+    USD/GBP: 0.80
+  cds_reference_entities:
+    - Synthetic Reference A
+    - Synthetic Reference B
+    - Synthetic Reference C

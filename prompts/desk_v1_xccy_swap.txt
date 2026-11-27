@@ -1,0 +1,5 @@
+Extract terms only from this fictional cross-currency swap confirmation. Return a JSON object
+with the keys trade_date, effective_date, termination_date, first_currency, second_currency,
+first_notional, second_notional, exchange_initial, exchange_final, payer_1, payer_2.
+Keep the two legs in their stated order. For each exchange flag return true, false, or null.
+Use null for missing or ambiguous fields. Copy terms without correction. Return only the JSON object.

@@ -12,6 +12,7 @@ import bcrypt
 from flask import Flask, Response, abort, g, redirect, render_template, request, session, url_for
 
 from trustswap.desk import exceptions, exports, imports, lifecycle, matcher, presentation, store, upload_review, uploads
+from trustswap.desk.products import PRODUCTS
 
 
 def roles(*allowed):
@@ -124,9 +125,10 @@ def create_app(path="desk.db", *, secret=None):
 
     def render_overview(import_report=None, error=None, submitted_lambda=None, upload_status=None, upload_id=""):
         db = database()
-        query = """SELECT trades.*, CASE WHEN EXISTS (
+        query = """SELECT trades.*, desk_products.product, CASE WHEN EXISTS (
                     SELECT 1 FROM desk_trade_versions WHERE trade_id=trades.id AND event_type='full')
-                    THEN 'Terminated' ELSE state END AS display_state FROM trades"""
+                    THEN 'Terminated' ELSE state END AS display_state FROM trades
+                    LEFT JOIN desk_products ON desk_products.trade_id=trades.id"""
         if g.user["role"] == "analyst":
             rows = db.execute(query + " WHERE assigned_to IS NULL OR assigned_to=? ORDER BY id", (g.user["id"],))
         else:
@@ -138,7 +140,8 @@ def create_app(path="desk.db", *, secret=None):
         return render_template("overview.html", trades=list(rows), threshold=threshold, import_report=import_report,
                                form_error=error, submitted_lambda=submitted_lambda, upload_status=upload_status,
                                upload_id=upload_id, allow_external=upload_review.allow_external(),
-                               cases=visible, case_metrics=exceptions.metrics(cases), overdue_only=overdue_only)
+                               cases=visible, case_metrics=exceptions.metrics(cases), overdue_only=overdue_only,
+                               products=PRODUCTS)
 
     def trade_for_user(trade_id):
         trade = database().execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
@@ -156,9 +159,10 @@ def create_app(path="desk.db", *, secret=None):
         return db.execute("SELECT value FROM settings WHERE name='lambda'").fetchone()[0]
 
     def comparison_rows(db, trade_id, threshold):
-        rows = db.execute("""SELECT fields.*, field_evidence.raw, field_evidence.span FROM fields
-                           LEFT JOIN field_evidence USING (trade_id,path)
-                           WHERE trade_id=? ORDER BY path""", (trade_id,))
+        rows = db.execute("""SELECT fields.*, field_evidence.raw, field_evidence.span,
+                           json_extract(desk_products.checks, '$."' || fields.path || '"') AS product_check
+                           FROM fields LEFT JOIN field_evidence USING (trade_id,path)
+                           LEFT JOIN desk_products USING (trade_id) WHERE trade_id=? ORDER BY path""", (trade_id,))
         return [presentation.comparison(row, threshold) for row in rows]
 
     def bulk_eligible(field):
@@ -175,6 +179,8 @@ def create_app(path="desk.db", *, secret=None):
                           "LEFT JOIN users ON owner=users.id WHERE trade_id=?", (trade_id,)).fetchone()
         analysts = exceptions.analyst_options(db) if case and g.user["role"] == "supervisor" else []
         version = lifecycle.current(db, trade_id)
+        product = db.execute("SELECT product FROM desk_products WHERE trade_id=?", (trade_id,)).fetchone()
+        product_name = PRODUCTS[product["product"]][0] if product else None
         readonly = lifecycle.terminated(db, trade_id)
         pending_change = db.execute("SELECT 1 FROM desk_lifecycle WHERE trade_id=? AND status='Pending approval'",
                                     (trade_id,)).fetchone() is not None
@@ -184,7 +190,7 @@ def create_app(path="desk.db", *, secret=None):
                                cleared=cleared, form_error=error, submitted=submitted or {}, upload=upload,
                                case=case, analysts=analysts, readonly=readonly, version=version,
                                lifecycle_types=lifecycle.EVENTS, lifecycle_input=lifecycle_input or {},
-                               pending_change=pending_change)
+                               pending_change=pending_change, product_name=product_name)
 
     @app.get("/trade/<trade_id>")
     @roles(*store.ROLES)
@@ -351,6 +357,8 @@ def create_app(path="desk.db", *, secret=None):
             abort(404)
         trade = trade_for_user(trade_id)
         require_active(trade_id)
+        if database().execute("SELECT 1 FROM desk_products WHERE trade_id=?", (trade_id,)).fetchone():
+            abort(409, "FIN and FpML downloads use the interest rate swap desk profile")
         if trade["state"] != "Affirmed":
             abort(409, "Only affirmed trades can be exported")
         try:

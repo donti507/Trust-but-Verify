@@ -5,6 +5,7 @@ import os
 
 from trustswap.desk import imports, store
 from trustswap.desk.app import create_app
+from trustswap.desk.products import seed as product_seed
 
 
 def main(argv=None):
@@ -17,6 +18,7 @@ def main(argv=None):
     seed = commands.add_parser("seed", help="Load fictional confirmations from replay and feed")
     seed.add_argument("--replay", default="results/demo/index.html")
     seed.add_argument("--feed-dir", default=os.environ.get("DESK_FEED_DIR", "feed"))
+    commands.add_parser("seed-products", help="Load 10 fictional examples per additional product")
     bookings = commands.add_parser("import-bookings")
     bookings.add_argument("csv")
     args = parser.parse_args(argv)
@@ -28,13 +30,15 @@ def main(argv=None):
             store.create_user(db, args.username, args.role, password)
         finally:
             db.close()
-    elif args.command in {"seed", "import-bookings"}:
+    elif args.command in {"seed", "seed-products", "import-bookings"}:
         store.initialize(args.db)
         db = store.connect(args.db)
         try:
             if args.command == "seed":
                 count, planted = imports.seed(db, args.replay, args.feed_dir)
                 print(f"Added {count} fictional trades with {planted} planted differences")
+            elif args.command == "seed-products":
+                print(f"Added {product_seed.seed(db)} fictional additional-product trades")
             else:
                 with open(args.csv, encoding="utf-8-sig", newline="") as source:
                     report = imports.import_bookings(db, source)

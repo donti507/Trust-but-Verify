@@ -6,6 +6,7 @@ import json
 from trustswap.decide.policy import escalate
 from trustswap.desk import matcher
 from trustswap.desk.imports import field_label
+from trustswap.desk.products import TERMS
 from trustswap.extract.parse import locate
 
 CENTERS = {"EUTA": "TARGET (EUTA)", "USNY": "New York (USNY)", "GBLO": "London (GBLO)", "JPTO": "Tokyo (JPTO)"}
@@ -13,12 +14,14 @@ CONVENTIONS = {
     "MODFOLLOWING": "Modified Following", "MODPRECEDING": "Modified Preceding",
     "FOLLOWING": "Following", "PRECEDING": "Preceding", "NONE": "Unadjusted", "NEAREST": "Nearest",
 }
-GROUPS = ("Trade dates", "Fixed leg", "Floating leg", "Parties")
+GROUPS = ("Trade dates", "Fixed leg", "Floating leg", "Product terms", "Parties")
 
 
 def value_text(value):
     if matcher.missing(value):
         return "Missing"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
     if isinstance(value, list):
         return ", ".join(map(str, value))
     return str(value)
@@ -53,7 +56,8 @@ def comparison(row, threshold):
     field.update(
         confirmation=confirm, booking=booked, raw_value=raw,
         label=field_label(path), match=matcher.match(path, confirm, booked),
-        risk=bool(escalate(field["p"], field["c"], field["r"], threshold)),
+        risk=bool(field.get("product_check")) if path in TERMS else
+        bool(escalate(field["p"], field["c"], field["r"], threshold)),
         confirmation_display=comparison_value(path, confirm, raw), booking_display=comparison_value(path, booked),
     )
     field["flagged"] = field["risk"] or field["match"] != matcher.MATCH
@@ -66,7 +70,10 @@ def source_groups(source, fields):
     for index, field in enumerate(fields):
         field["anchor"] = f"field-{index}"
         path = field["path"]
-        if "." not in path and path.endswith("_date"):
+        if path in TERMS:
+            group = {"trade_date": "Trade dates", "payer": "Parties", "receiver": "Parties"}.get(
+                TERMS[path].normalizer, "Product terms")
+        elif "." not in path and path.endswith("_date"):
             group = "Trade dates"
         elif path.rsplit(".", 1)[-1] in {"payer", "receiver", "notice_address"}:
             group = "Parties"

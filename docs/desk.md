@@ -110,3 +110,28 @@ fictional replacement such as Synthetic Party C.
 The supervisor sees the booked and proposed values in Approvals. Approval
 creates a new immutable version in History. A rejection keeps the old version
 and records the reason. A full termination locks the trade after approval.
+
+## FX forwards, cross-currency swaps and CDS
+
+Run `python -m trustswap.desk seed-products` for 10 fictional confirmations of
+each additional product. Use Overview to open them or upload a labelled UTF-8
+TXT confirmation with a `Product: FX forward`, `Product: Cross-currency swap`
+or `Product: Credit default swap` line. Label each stated field as in the
+seeded confirmations. The desk reads those terms locally. With external
+extraction enabled, the desk can first classify unlabelled text and then
+extract terms using the product prompt. Both calls are cached by input hash.
+Scanned documents use the upload workflow above.
+
+These products display **Uncalibrated**. An invalid term, a missing critical
+term, a failed product check or a booking difference sends the field for
+review. FX uses the configured quote-per-base rate, with a tolerance of 20%.
+Cross-currency swaps require two distinct currencies and explicit initial
+and final exchange flags. CDS uses the configured fictional reference entities,
+spread and upfront terms, and QuantLib twentieth-IMM maturity dates. Reference
+rates and entities are in `configs/desk.yaml`.
+
+Booking CSV headers use product prefixes such as `fx_forward.forward_rate`,
+`xccy_swap.exchange_initial` and `cds.reference_entity`. A product booking can
+use its trade ID or that product's normalized booking key. The desk compares
+these products in their own fields. FIN, FpML and lifecycle operations use the
+interest-rate-swap profile above.

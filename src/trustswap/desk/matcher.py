@@ -4,6 +4,7 @@ import re
 
 from trustswap.common.annotations import normalise_field
 from trustswap.common.normalise import normalise_rate
+from trustswap.desk.products import KEYS, TERMS
 
 MATCH = "MATCH"
 MISMATCH = "MISMATCH"
@@ -23,18 +24,35 @@ def missing(value):
     return value is None or (isinstance(value, str) and not clean(value))
 
 
+def term_name(field):
+    spec = TERMS.get(field)
+    return spec.normalizer if spec else field.rsplit(".", 1)[-1]
+
+
 def normalize(field, value):
     if missing(value):
         return None
     value = clean(value)
-    name = field.rsplit(".", 1)[-1]
+    name = term_name(field)
+    if name == "flag":
+        flag = str(value).casefold()
+        if flag in {"true", "yes", "1"}:
+            return True
+        if flag in {"false", "no", "0"}:
+            return False
+        raise ValueError("Use yes or no for an exchange flag")
+    if name == "decimal":
+        number = Decimal(str(value))
+        if not number.is_finite() or number <= 0:
+            raise ValueError("Expected a positive rate")
+        return number
     if name in {"fixed_rate", "spread"}:
         text = str(value).strip()
         inferred = bool(re.search(r"%|per ?cent|bps?|basis points?", text, re.I))
         return normalise_rate(text, unit=None if inferred else "decimal", is_spread=name == "spread")
     if name == "business_centers" and isinstance(value, list):
         value = ", ".join(value)
-    return normalise_field(field, str(value))
+    return normalise_field(name, str(value))
 
 
 def match(field, confirmed, booked):
@@ -46,17 +64,24 @@ def match(field, confirmed, booked):
         left, right = normalize(field, confirmed), normalize(field, booked)
     except (ValueError, ArithmeticError):
         return MISMATCH
-    if field.rsplit(".", 1)[-1] in {"fixed_rate", "spread"}:
+    if term_name(field) in {"fixed_rate", "spread"}:
         return MATCH if abs(left - right) <= RATE_TOLERANCE else MISMATCH
     return MATCH if left == right else MISMATCH
 
 
 def booking_key(fields):
+    products = {path.split(".", 1)[0] for path in fields if path in TERMS}
+    if len(products) > 1:
+        return None
+    product = next(iter(products), None)
+    keys = tuple(f"{product}.{name}" for name in KEYS[product]) if product else KEY_FIELDS
     try:
-        values = tuple(normalize(field, fields.get(field)) for field in KEY_FIELDS)
+        values = tuple(normalize(field, fields.get(field)) for field in keys)
     except (ValueError, ArithmeticError):
         return None
-    return values if all(value is not None for value in values) else None
+    if any(value is None for value in values):
+        return None
+    return (product, *values) if product else values
 
 
 def link_booking(trade_id, fields, bookings):
