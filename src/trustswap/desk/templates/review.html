@@ -1,12 +1,15 @@
 {% extends 'base.html' %}
 {% block title %}Review {{ trade.id }}{% endblock %}
 {% block content %}
-<section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ trade.state }}</p>
+<section class="hero"><h1>Confirmation review</h1><p>{{ trade.id }} · {{ trade.source_collection }} · {{ 'Terminated' if readonly else trade.state }}</p>
 {% if upload and upload.kind in ('fpml','swift') %}<p>Structured format import · booking comparison</p>{% endif %}
-{% if trade.state == 'Affirmed' %}
+{% if trade.state == 'Affirmed' and not readonly %}
 <div class="actions"><a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='fpml') }}">Download FpML</a>
 <a href="{{ url_for('export_confirmation', trade_id=trade.id, kind='swift') }}">Download FIN</a></div>
 {% endif %}
+<p><a href="{{ url_for('history', trade_id=trade.id) }}">History</a>
+{% if version %} · Booked version {{ version.version }}{% endif %}</p>
+{% if readonly %}<p>This trade is terminated. Review and lifecycle actions are locked.</p>{% endif %}
 <p>Policy threshold λ = {{ '%g'|format(threshold) }}.</p>
 {% if form_error %}<p class="form-error" role="alert">{{ form_error }}</p>{% endif %}</section>
 {% if case %}
@@ -14,7 +17,7 @@
 <h2>Exception case</h2><p>
 <span class="tag">{{ case.status }}</span> {{ case.severity|capitalize }} severity ·
 {{ case.owner_name or 'Unassigned' }} · Due {{ case.due_at|replace('T', ' ')|replace('+00:00', ' UTC') }}</p>
-{% if g.user.role == 'supervisor' and case.status != 'Resolved' %}
+{% if not readonly and g.user.role == 'supervisor' and case.status != 'Resolved' %}
 <form method="post" action="{{ url_for('assign_case', trade_id=trade.id) }}">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <label for="case-owner">Assign analyst</label>
@@ -23,7 +26,7 @@
 {% for analyst in analysts %}<option value="{{ analyst.id }}" {{ 'selected' if case.owner == analyst.id }}>{{ analyst.name }}</option>{% endfor %}
 </select> <button>Assign case</button></form>
 {% endif %}
-{% if case.owner and (g.user.role == 'supervisor' or case.owner == g.user.id) %}
+{% if not readonly and case.owner and (g.user.role == 'supervisor' or case.owner == g.user.id) %}
 {% if case.status in ('Assigned', 'Waiting for counterparty') %}
 <div class="actions">
 <form method="post" action="{{ url_for('chase_case',trade_id=trade.id) }}">
@@ -37,6 +40,30 @@
 </div>
 {% endif %}{% endif %}
 </section>
+{% endif %}
+{% if g.user.role == 'analyst' and trade.state == 'Affirmed' and not readonly %}
+<section class="panel">
+<h2>Trade lifecycle</h2>
+{% if pending_change %}<p>A proposed change is waiting for supervisor approval.</p>
+{% else %}
+<form method="post" action="{{ url_for('propose_lifecycle',trade_id=trade.id) }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+<label>Event <select name="event_type" required>
+{% for kind, label in lifecycle_types.items() %}<option value="{{ kind }}" {{ 'selected' if lifecycle_input.event_type == kind }}>{{ label }}</option>{% endfor %}
+</select></label>
+<label>Effective date <input name="effective" value="{{ lifecycle_input.effective|default('') }}" required placeholder="YYYY-MM-DD"></label>
+<label>Field for a manual amendment <select name="field"><option value="">Select field</option>
+{% for field in fields %}<option value="{{ field.path }}" {{ 'selected' if lifecycle_input.field == field.path }}>{{ field.label }}</option>{% endfor %}
+</select></label>
+<label>New value or remaining notional <input name="value" value="{{ lifecycle_input.value|default('') }}"></label>
+<label>Outgoing party for a novation <input name="outgoing" value="{{ lifecycle_input.outgoing|default('') }}"></label>
+<label>Incoming party for a novation <input name="incoming" value="{{ lifecycle_input.incoming|default('') }}"></label>
+<label>Incoming amendment file (optional) <input type="file" name="confirmation" accept=".pdf,.png,.jpg,.jpeg,.txt,.fin,.xml"></label>
+<label><input type="checkbox" name="fictional" value="yes"> The attachment and parties are fictional.</label>
+<label>Note <textarea name="note" required>{{ lifecycle_input.note|default('') }}</textarea></label>
+<button>Propose lifecycle change</button>
+</form>
+{% endif %}</section>
 {% endif %}
 <div class="review-layout">
 <section class="panel source" aria-labelledby="source-title">
@@ -65,7 +92,7 @@
 {% endif %}
 {% if field.reason %}<p>Supervisor reason: {{ field.reason }}</p>{% endif %}
 {% if field.state == 'pending' %}<p>Awaiting approval. {{ field.note }}</p>{% endif %}
-{% if g.user.role == 'analyst' and field.state in ('open','rejected') %}
+{% if not readonly and g.user.role == 'analyst' and field.state in ('open','rejected') %}
 <form method="post" action="{{ url_for('review_field',trade_id=trade.id,field=field.path) }}#{{ field.anchor }}">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
 {% if form_error and submitted.field == field.path %}<p class="form-error" aria-hidden="true">{{ form_error }}</p>{% endif %}
@@ -81,7 +108,7 @@
 </div>
 <section class="panel review-progress" aria-label="Review progress">
 <strong>{{ cleared }} of {{ fields|length }} fields cleared</strong>
-{% if g.user.role == 'analyst' and can_bulk_accept %}
+{% if not readonly and g.user.role == 'analyst' and can_bulk_accept %}
 <form method="post" action="{{ url_for('accept_matched', trade_id=trade.id) }}">
 <input type="hidden" name="csrf" value="{{ csrf_token() }}">
 <button>Accept all matched low-risk fields</button></form>

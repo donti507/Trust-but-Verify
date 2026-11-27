@@ -18,7 +18,7 @@ from trustswap.extract.fields import PATHS
 
 TRADE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 LEGS = {"fixed_leg": "fixed leg", "floating_leg": "floating leg", "floating_leg_2": "second floating leg"}
-PARTIES = {"Synthetic Party A", "Synthetic Party B"}
+PARTIES = {f"Synthetic Party {letter}" for letter in "ABCD"}
 FIELD_PATHS = set(PATHS)
 DIFFERENCES = ("notional", "rate", "date", "convention")
 
@@ -38,10 +38,7 @@ def _trade_id(value):
     return value
 
 
-ADDRESSES = (
-    "Synthetic Party A, 1 Example Street, Example City",
-    "Synthetic Party B, 1 Example Street, Example City",
-)
+ADDRESSES = tuple(f"{name}, 1 Example Street, Example City" for name in sorted(PARTIES))
 
 
 def _ocr_key(value):
@@ -67,10 +64,7 @@ def _fictional(path, value):
     term = path.rsplit(".", 1)[-1]
     if term in {"payer", "receiver"} and (not isinstance(value, str) or value not in PARTIES):
         raise ValueError("Booking parties must use the fictional party names")
-    if term == "notice_address" and not (isinstance(value, str) and value in {
-        "Synthetic Party A, 1 Example Street, Example City",
-        "Synthetic Party B, 1 Example Street, Example City",
-    }):
+    if term == "notice_address" and not (isinstance(value, str) and value in ADDRESSES):
         raise ValueError("Use a fictional example address")
 
 

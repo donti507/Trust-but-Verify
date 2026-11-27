@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from tempfile import NamedTemporaryFile
 
-from trustswap.desk import exceptions, imports, matcher, store, upload_review
+from trustswap.desk import exceptions, imports, lifecycle, matcher, store, upload_review
 from trustswap.desk.formats import fpml, read_terms, swift
 from trustswap.ingest.to_text import normalise_whitespace, to_text
 
@@ -171,6 +171,8 @@ def attach(db, upload, actor, requested_id=None):
     with store.transaction(db):
         matched = _find_trade(db, reference, upload.fields)
         trade_id = matched["trade_id"] if matched else reference
+        if lifecycle.terminated(db, trade_id):
+            raise ValueError("The trade is terminated and read-only")
         current = db.execute("SELECT sha256 FROM desk_uploads WHERE trade_id=?", (trade_id,)).fetchone()
         if current and current["sha256"] == upload.digest:
             return trade_id
@@ -205,10 +207,12 @@ def attach(db, upload, actor, requested_id=None):
 
 
 def export(db, trade_id, kind):
-    terms = {}
-    for row in db.execute("SELECT * FROM fields WHERE trade_id=?", (trade_id,)):
-        value = row["booking"] if row["state"] == "approved" else row["confirmation"]
-        terms[row["path"]] = json.loads(value)
+    version = lifecycle.current(db, trade_id)
+    if version and version["version"] > 1:
+        terms = json.loads(version["terms"])
+    else:
+        terms = {row["path"]: json.loads(row["booking"] if row["state"] == "approved" else row["confirmation"])
+                 for row in db.execute("SELECT * FROM fields WHERE trade_id=?", (trade_id,))}
     for path, term in terms.items():
         imports._fictional(path, term)
     trade = read_terms(trade_id, terms, "").trade

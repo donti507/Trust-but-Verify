@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Trade history{% endblock %}
+{% block content %}
+<section class="hero"><h1>Trade history</h1>
+<p>{{ trade.id }} · <a href="{{ url_for('review', trade_id=trade.id) }}">Back to confirmation</a></p></section>
+<section class="panel"><h2>Booked versions</h2>
+<ol reversed class="version-timeline">
+{% for version in versions %}
+<li><h3>Version {{ version.version }} · {{ version.label }}</h3>
+<p>Effective {{ version.effective }}{% if version.approved_by %} · Approved by {{ version.approved_by }}{% endif %}</p>
+<details><summary>View booked terms</summary><dl>
+{% for key, value in version.terms.items() if value is not none %}<dt>{{ field_label(key) }}</dt><dd>{{ value|join(', ') if value is iterable and value is not string else value }}</dd>{% endfor %}
+</dl></details></li>
+{% else %}<li>The current booking has no lifecycle changes.</li>{% endfor %}
+</ol>
+</section>
+<section class="panel"><h2>Lifecycle requests</h2>
+{% for row in requests %}
+<h3>{{ row.label }} · {{ row.status }}</h3>
+<p>Effective {{ row.effective }} · Proposed by {{ row.analyst }}</p><p>{{ row.note }}</p>
+{% if row.reason %}<p>Decision reason: {{ row.reason }}</p>{% endif %}
+{% include 'lifecycle_diff.html' %}
+{% else %}<p>No lifecycle requests.</p>{% endfor %}
+</section>
+{% endblock %}

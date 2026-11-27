@@ -1,0 +1,7 @@
+<table><thead><tr><th>Field</th><th>Booked version {{ row.base_version }}</th><th>Proposed value</th></tr></thead>
+<tbody>{% for key, change in row.changes.items() %}<tr><th scope="row">{{ field_label(key) }}</th>
+{% for value in (change.before, change.after) %}
+<td>{{ 'Missing' if value is none else value|join(', ') if value is iterable and value is not string else value }}</td>
+{% endfor %}
+</tr>{% endfor %}</tbody></table>
+{% if row.risk_flags %}<p class="reasons">Risk policy flagged {{ row.risk_flags|map('replace', '_', ' ')|join(', ') }} in the imported amendment.</p>{% endif %}
