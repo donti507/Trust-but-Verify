@@ -17,6 +17,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
+markers = ["browser: optional offline browser tests"]
 
 [tool.setuptools.package-data]
 "trustswap.ref" = ["*.txt", "*.yaml"]

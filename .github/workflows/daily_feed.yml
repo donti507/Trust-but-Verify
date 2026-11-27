@@ -1,0 +1,126 @@
+name: Daily synthetic rates feed
+on:
+  schedule:
+    - cron: '15 6 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: Optional publication date (YYYY-MM-DD UTC)
+        type: string
+concurrency:
+  group: daily-feed-publication
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      ready: ${{ steps.publish.outputs.ready }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PCSS_BASE_URL: ${{ secrets.PCSS_BASE_URL }}
+      PCSS_API_KEY: ${{ secrets.PCSS_API_KEY }}
+      PUBLICATION_DATE: ${{ inputs.date || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore feed model-call cache and budget ledger
+        uses: actions/cache/restore@v4
+        with:
+          path: cache/live_feed
+          key: live-feed-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: live-feed-v1-
+      - name: Prepare feed and website branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "Trust but Verify feed"
+          git config --global user.email "feed@users.noreply.github.com"
+          for branch in feed-data gh-pages; do
+            dir="$RUNNER_TEMP/$branch"
+            git ls-remote --heads origin "$branch" > "$RUNNER_TEMP/$branch.ref"
+            if [[ -s "$RUNNER_TEMP/$branch.ref" ]]; then
+              git fetch --no-tags origin "refs/heads/$branch"
+              git worktree add --detach "$dir" FETCH_HEAD
+            else
+              git init -q "$dir"
+            fi
+          done
+      - name: Run and publish atomically
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          publication="${PUBLICATION_DATE:-$(date -u +%F)}"
+          [[ "$publication" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+          if [[ "$(date -u -d "$publication" +%u)" -ge 6 ]]; then
+            echo "Skipped: weekend"
+            exit 0
+          fi
+          data="$RUNNER_TEMP/feed-data"
+          web="$RUNNER_TEMP/gh-pages"
+          if [[ -f "$data/feed/$publication.json" ]]; then
+            echo "Skipped: date already published"
+            exit 0
+          fi
+          if [[ ! -f "$data/artifacts/model.json" || ! -f "$data/artifacts/replay.json" ]]; then
+            echo "Skipped: feed artifact bundle is missing"
+            exit 0
+          fi
+          if [[ -z "$PCSS_BASE_URL" || -z "$PCSS_API_KEY" ]]; then
+            echo "Skipped: configure PCSS_BASE_URL and PCSS_API_KEY first"
+            exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core
+          pip install -r requirements-dev.txt -e .
+          python scripts/daily_feed.py --date "$publication" --feed-dir "$data/feed" --site "$web/index.html" \
+            --artifacts "$data/artifacts"
+          if [[ ! -f "$data/feed/$publication.json" ]]; then
+            exit 0
+          fi
+          git -C "$data" add -- "feed/$publication.json" feed/history.json
+          git -C "$data" commit -m "Publish rates feed for $publication"
+          git -C "$web" add -- index.html
+          if ! git -C "$web" diff --cached --quiet; then
+            git -C "$web" commit -m "Refresh dashboard for $publication"
+          fi
+          data_sha="$(git -C "$data" rev-parse HEAD)"
+          web_sha="$(git -C "$web" rev-parse HEAD)"
+          git fetch "$data" HEAD
+          git fetch "$web" HEAD
+          git push --atomic origin "$data_sha:refs/heads/feed-data" "$web_sha:refs/heads/gh-pages"
+          mkdir -p "$RUNNER_TEMP/feed-pages"
+          cp "$web/index.html" "$RUNNER_TEMP/feed-pages/index.html"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Save feed model-call cache and budget ledger
+        if: always() && hashFiles('cache/live_feed/budget/*.txt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: cache/live_feed
+          key: live-feed-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Package the generated site
+        if: steps.publish.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/feed-pages
+  deploy:
+    needs: feed
+    if: needs.feed.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

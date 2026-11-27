@@ -818,3 +818,27 @@ footer {
     grid-column: 1/-1;
   }
 }
+
+#feed-history {
+  width: 100%;
+  height: auto;
+  max-height: 280px;
+}
+#source-callouts {
+  list-style: none;
+  margin: 0;
+  padding: 0.6rem 1rem;
+}
+.source-callout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.35rem;
+  border-left: 3px solid #b43a39;
+  border-radius: 0.25rem;
+  color: #8b2725;
+  background: #feece9;
+  font-size: 0.85rem;
+}
