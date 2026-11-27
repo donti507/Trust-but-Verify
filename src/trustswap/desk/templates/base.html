@@ -33,7 +33,7 @@ pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:32rem; overflow:a
 <header><span class="brand">Trust but Verify</span><span class="tag">Synthetic demo</span>
 {% if g.user %}<nav aria-label="Desk navigation"><a href="{{ url_for('overview') }}">Overview</a>
 {% if g.user.role == 'supervisor' %}<a href="{{ url_for('approvals') }}">Approvals</a>{% endif %}
-{% if g.user.role == 'auditor' %}<a href="{{ url_for('audit_log') }}">Audit log</a>{% endif %}</nav>
+{% if g.user.role in ('auditor','supervisor') %}<a href="{{ url_for('audit_log') }}">Audit log</a>{% endif %}</nav>
 <span>{{ g.user.name }} · {{ g.user.role }}</span>
 <form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary">Sign out</button></form>
 {% endif %}</header>
